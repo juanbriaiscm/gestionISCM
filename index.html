@@ -3200,6 +3200,29 @@ function save(){
     } catch(e) { _fbSyncIndicator('err'); }
   }, 800);
 }
+
+// Igual que save(), pero SIN debounce y devolviendo si la sincronización
+// con Firestore realmente funcionó. Se usa en acciones grandes y puntuales
+// (cierre de mes, cierre de año) donde conviene esperar la confirmación
+// real antes de decirle al usuario "listo", en vez de asumir que un save()
+// en segundo plano funcionó.
+async function guardarAhora(){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(alumnos));
+  localStorage.setItem(MES_KEY, mes);
+  clearTimeout(_saveTimer);
+  if(!window._fb) return false;
+  _fbSyncIndicator('saving');
+  try{
+    await window._fb.set(STORAGE_KEY, alumnos);
+    await window._fb.set(MES_KEY, mes);
+    _fbSyncIndicator('ok');
+    return true;
+  }catch(e){
+    console.error('guardarAhora: no se pudo sincronizar con Firestore', e);
+    _fbSyncIndicator('err');
+    return false;
+  }
+}
 function fmt(n){ const v=parseFloat(n)||0; const p=v.toFixed(2).split('.'); p[0]=p[0].replace(/\B(?=(\d{3})+(?!\d))/g,'.'); return '$'+p[0]+','+p[1]; }
 function sortAlumnos(){
   const carreraOrden = {
@@ -6086,8 +6109,14 @@ function ejecutarCierre(){
   const nuevoYear = nuevoEsEnero ? (parseInt(year)+1).toString() : year;
   mes = nuevoMes + ' ' + nuevoYear;
   document.getElementById('mes-label').textContent='Período: '+mes;
-  save();renderStats();renderAlumnosActual();closeModal('modal-cierre');
-  showToast(`Cierre de ${nuevoMes} ejecutado correctamente`);
+  renderStats();renderAlumnosActual();closeModal('modal-cierre');
+  guardarAhora().then(ok=>{
+    if(ok){
+      showToast(`✅ Cierre de ${nuevoMes} ejecutado y confirmado en la nube`);
+    } else {
+      showToast(`⚠️ Cierre de ${nuevoMes} se aplicó en este dispositivo, pero NO se pudo confirmar en la nube. No cierres esta pestaña: revisá tu conexión y volvé a intentar (el ícono ⚠ arriba se pone verde cuando sincronice).`, 'error');
+    }
+  });
 }
 
 // ── Cierre de año ─────────────────────────────────────────────────────────────
