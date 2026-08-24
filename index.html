@@ -392,11 +392,6 @@ tr:hover td{background:#fafaf5}
 .bono-hint{font-size:10px;color:#aaa;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bono-inp:disabled{background:#f4f4ef;color:#c4c4bc;border-color:#ececE4;cursor:not-allowed}
 
-/* ══════════════════════════════════════════════════════════════
-   RESPONSIVE — pantallas angostas / paneles divididos (~600-900px)
-   Pensado para uso real: notebook 1366×768 con ventanas lado a lado,
-   o el panel de artifact de Claude ocupando ~half del ancho.
-   ══════════════════════════════════════════════════════════════ */
 @media (max-width: 900px){
   .main, #tab-resumen-mensual, #tab-becas, #tab-acuerdos, #tab-proveedores,
   #tab-conciliacion, #tab-presupuestos, #tab-anios, #tab-archivos{
@@ -429,17 +424,11 @@ tr:hover td{background:#fafaf5}
   .controls input,.controls select,.controls .btn{width:100%;min-width:0}
   .modal-actions{flex-wrap:wrap}
   .modal-actions .btn{flex:1 1 auto}
-  /* La mayoría de los campos de los modales usan grillas de 2-3 columnas
-     por estilo inline (formularios de alta/edición). Se colapsan a 1
-     columna para que no queden apretados en un panel muy angosto. */
   .overlay [style*="grid-template-columns"]{grid-template-columns:1fr!important}
   .stats-row-secondary{gap:10px 16px;padding:8px 12px}
   .stats-secondary-caption{padding-right:0;border-right:none;width:100%}
 }
 
-/* Contención dura: ningún elemento debería poder empujar el ancho de la
-   página más allá del viewport. Las tablas siguen scrolleando dentro de
-   su propio .table-wrap (overflow-x:auto ya definido inline por tabla). */
 .main, .topbar{max-width:100vw}
 img, svg{max-width:100%}
 </style>
@@ -467,12 +456,6 @@ img, svg{max-width:100%}
 
   const app = initializeApp(firebaseConfig);
 
-  // ── App Check: certifica que el request viene del navegador real de esta
-  // página (vía reCAPTCHA v3), no de un script/bot que solo copió el
-  // firebaseConfig. La clave acá es la "Site key" pública de reCAPTCHA — no
-  // es secreta, es normal que esté en el código, igual que el firebaseConfig.
-  // La verificación real la hace la Clave secreta que se guardó en Firebase
-  // Console → App Check → tu app → reCAPTCHA.
   initializeAppCheck(app, {
     provider: new ReCaptchaV3Provider("6LdQHJQtAAAAADIoR1mf3dT_SiyX6x0-IDqPU3U2"),
     isTokenAutoRefreshEnabled: true
@@ -482,8 +465,6 @@ img, svg{max-width:100%}
   const auth = getAuth(app);
   const functions = getFunctions(app);
 
-  // Sesión atada a la pestaña (se cierra al cerrar el navegador), como el
-  // comportamiento anterior basado en sessionStorage.
   setPersistence(auth, browserSessionPersistence).catch(e => console.warn("setPersistence error", e));
 
   const DOMINIO_EMAIL_USUARIOS = "iscm-gestion.local";
@@ -492,10 +473,6 @@ img, svg{max-width:100%}
 
   // ── API de autenticación real, expuesta al resto del script (no-module) ──
   window._auth = {
-    // Inicia sesión con usuario (no email) + contraseña. Si la cuenta tiene
-    // verificación en dos pasos activada, en vez de resolver normalmente
-    // tira un error {code:'mfa-required'} — el login.js de afuera debe
-    // pedir el código y llamar a mfaCompletarLogin().
     signIn: async (usuario, pass) => {
       try {
         return await signInWithEmailAndPassword(auth, `${usuario}@${DOMINIO_EMAIL_USUARIOS}`, pass);
@@ -534,10 +511,6 @@ img, svg{max-width:100%}
       if (!auth.currentUser) return false;
       return multiFactor(auth.currentUser).enrolledFactors.length > 0;
     },
-    // Genera un secreto TOTP nuevo para empezar a activar el 2FA. Hay que
-    // mostrarle secret.secretKey al usuario para que lo cargue a mano en
-    // su app (Google Authenticator, Authy, etc.), y después confirmar con
-    // mfaActivar() usando un código que la app le genere con ese secreto.
     mfaGenerarSecreto: async () => {
       const session = await multiFactor(auth.currentUser).getSession();
       return await TotpMultiFactorGenerator.generateSecret(session);
@@ -552,8 +525,6 @@ img, svg{max-width:100%}
         await multiFactor(auth.currentUser).unenroll(f);
       }
     },
-    // Suscribirse a cambios de sesión (login, logout, sesión restaurada al
-    // recargar la página). Devuelve la función para desuscribirse.
     onChange: (cb) => onAuthStateChanged(auth, cb)
   };
   window.dispatchEvent(new Event('authReady'));
@@ -578,9 +549,6 @@ img, svg{max-width:100%}
     confirmarPasswordCambiada: cf("confirmarPasswordCambiada")
   };
 
-  // Lee el perfil (nombre, rol, activo, debeCambiarPass) de un usuario
-  // desde la colección "usuarios" — separada de "datos", donde vive el
-  // resto de la información de la app.
   async function fbGetPerfil(uid) {
     try {
       const snap = await getDoc(doc(db, "usuarios", uid));
@@ -594,8 +562,6 @@ img, svg{max-width:100%}
     if (!user) return; // esperar a que haya una sesión real (login o restaurada)
     if (window._fbReady) return; // evitar reconfigurar si el callback se dispara de nuevo
 
-    // ── Helpers de sincronización de datos de la app ─────────────────────
-    // Guarda un valor JSON en Firestore (colección "datos", doc = key)
     async function fbSet(key, value) {
       try {
         await setDoc(doc(db, "datos", key), { v: JSON.stringify(value) });
@@ -1119,7 +1085,6 @@ img, svg{max-width:100%}
         <div id="arancel-ef123-saved-info" style="font-size:11px;color:#888;text-align:center;margin-top:6px;min-height:16px"></div>
       </div>
     </div>
-
 
   <!-- Historial de cambios de arancel -->
   <div style="margin-top:16px" id="arancel-historial-wrap">
@@ -3064,10 +3029,6 @@ function _fbSyncIndicator(state){
   else if(state === 'err'){ el.textContent='⚠ Sin conexión (local)'; el.style.background='rgba(192,57,43,0.3)'; el.style.color='#f5c6c0'; }
 }
 
-// Convierte "NombreMes Año" (ej: "Agosto 2026") a un número comparable
-// (año*12 + índice de mes) para saber cuál período es más reciente.
-// Es un helper autocontenido: no depende de ORDEN_MES (definido más abajo
-// en el script) porque esta comparación se necesita apenas arranca load().
 function _periodoValor(str){
   const MESES_ORD = ['enero','febrero','marzo','abril','mayo','junio','julio',
     'agosto','septiembre','octubre','noviembre','diciembre'];
@@ -3101,11 +3062,6 @@ async function load(){
     }
   }
 
-  // 1.b. Reconocer datos locales más recientes: si esta pestaña/dispositivo
-  // tiene guardado un período más avanzado que el que tiene Firebase (por
-  // ejemplo, se ejecutaron cierres de mes que no llegaron a sincronizarse),
-  // subimos automáticamente esos datos locales a Firebase al iniciar sesión
-  // en vez de dejar que el dato viejo de Firebase los pise.
   const localAlumnosRaw = localStorage.getItem(STORAGE_KEY);
   const localMesRaw = localStorage.getItem(MES_KEY);
   if(fbDisponible && localMesRaw && _periodoValor(localMesRaw) > _periodoValor(savedMes)){
@@ -3122,8 +3078,6 @@ async function load(){
     }catch(e){
       console.error('No se pudieron subir los datos locales más recientes a Firebase:', e);
       _fbSyncIndicator('err');
-      // Igual seguimos usando los datos locales para esta sesión aunque
-      // no se haya podido subir a Firebase; mejor eso que perderlos.
       if(localAlumnosRaw) savedAlumnos = JSON.parse(localAlumnosRaw);
       savedMes = localMesRaw;
     }
@@ -3248,11 +3202,6 @@ function save(){
   }, 800);
 }
 
-// Igual que save(), pero SIN debounce y devolviendo si la sincronización
-// con Firestore realmente funcionó. Se usa en acciones grandes y puntuales
-// (cierre de mes, cierre de año) donde conviene esperar la confirmación
-// real antes de decirle al usuario "listo", en vez de asumir que un save()
-// en segundo plano funcionó.
 async function guardarAhora(){
   localStorage.setItem(STORAGE_KEY, JSON.stringify(alumnos));
   localStorage.setItem(MES_KEY, mes);
@@ -3337,8 +3286,6 @@ function getFiltered(){
     return true;
   });
 }
-// Renderiza la tabla que esté activa (activos o inactivos) para que
-// cualquier cambio se refleje sin importar desde qué tab se hizo.
 function renderAlumnosActual(){
   renderTable();
   if(tabActual==='inactivos'){ renderInactivosStats(); renderInactivos(); }
@@ -3431,16 +3378,12 @@ function renderTable(){
     return sepCarrera + sepAnio + row;
   }).join('');
 
-  
 }
 function renderResumen(){
   // Solo alumnos activos (excluye Baja y Vacante)
   const alumnosActivos = alumnos.filter(a=>a.estado!=='Baja'&&a.estado!=='Vacante');
   const carreras = [...new Set(alumnosActivos.map(a=>a.carrera))].sort();
 
-  // Inactivos: solo alumnos[] con estado Baja (misma fuente que la pestaña Inactivos)
-  // INACTIVOS_EXCEL no se usa acá porque al importar el Excel esos alumnos ya quedan
-  // guardados en alumnos[] con estado 'Baja', y mezclar ambas fuentes genera duplicados.
   const todosInactivos = getInactivosReales();
   const carrerasInac = [...new Set(todosInactivos.map(a=>a.carrera))].sort();
 
@@ -3510,9 +3453,6 @@ function renderResumen(){
 }
 let tabActual = 'dashboard';
 
-// Si llega una actualización en tiempo real (Firebase) de datos que alimentan
-// Resumen/Indicadores mientras el usuario está justo mirando esa pantalla,
-// la refresca sola — antes solo se enteraba apretando "Actualizar" a mano.
 function dashRefrescarSiVisible(){
   if(tabActual==='dashboard' && typeof renderDashboard==='function') renderDashboard();
   if(tabActual==='indicadores' && typeof renderIndicadores==='function') renderIndicadores();
@@ -3574,8 +3514,6 @@ function switchTab(tab, el){
 
 const _ddHideTimers = {};
 function ddShow(id){
-  // Cancelar cualquier cierre pendiente de este dropdown (evita el parpadeo
-  // al cruzar el pequeño espacio entre el botón y el menú)
   if(_ddHideTimers[id]){ clearTimeout(_ddHideTimers[id]); delete _ddHideTimers[id]; }
   const d=document.getElementById(id); if(!d) return;
   const group=d.parentElement;
@@ -3594,8 +3532,6 @@ function ddShow(id){
   d.classList.add('open');
 }
 function ddHide(id){
-  // Pequeño margen de gracia antes de cerrar: si el mouse vuelve a entrar
-  // (al botón o al propio menú) dentro de ese lapso, no se cierra.
   _ddHideTimers[id] = setTimeout(()=>{
     const d=document.getElementById(id); if(d) d.classList.remove('open');
     delete _ddHideTimers[id];
@@ -3649,8 +3585,6 @@ function exportarContactosWpp(anchorEl){
 }
 
 function _normalizarTelArg(raw){
-  // Limpia el número y lo convierte a formato +549XXXXXXXXXX
-  // Acepta: 1165684761 / 011-1565684761 / 0221-15-433... / (011)15-6568...
   if(!raw) return null;
   let s = String(raw).replace(/[\s\-().+]/g,'').trim();
   if(!s || s.length < 6) return null;
@@ -3662,14 +3596,7 @@ function _normalizarTelArg(raw){
   // Quitar el 0 inicial del código de área (0221 → 221)
   if(s.startsWith('0'))    s = s.slice(1);
 
-  // Quitar el 15 del celular en códigos de área de 3 dígitos
-  // Ej: 221-15-4334567 → 22143345  (cód área 3 dig + 15 + 7 dig = 12 dig → quitar 15 → 10 dig)
-  // Ej: 11-15-65684761 → 1165684761 (cód área 2 dig + 15 + 8 dig = 12 dig → quitar 15 → 10 dig)
-  // La regla: si tiene 12 dígitos, probablemente tiene el 15 incluido
   if(s.length === 12){
-    // cód área 2 dígitos (11, 22, 23...) → el 15 empieza en pos 2
-    // cód área 3 dígitos (221, 223, 291...) → el 15 empieza en pos 3
-    // Detectar: si pos 2-3 es "15" → área 2 dig; si pos 3-4 es "15" → área 3 dig
     if(s.slice(2,4)==='15')      s = s.slice(0,2) + s.slice(4);
     else if(s.slice(3,5)==='15') s = s.slice(0,3) + s.slice(5);
   }
@@ -3732,8 +3659,6 @@ function _doExportWpp(filtro){
   // Ordenar por nombre
   filas.sort((a,b)=>a.nombre.localeCompare(b.nombre));
 
-  // CSV: formato estándar para importar en WhatsApp / Google Contacts / iPhone
-  // Columnas: Name, Phone (WhatsApp reconoce estos headers directamente)
   const bom = '\uFEFF'; // BOM para que Excel/Google Contacts no tenga problemas de encoding
   const csv = bom + 'Name,Phone Number\r\n' +
     filas.map(f=>`"${f.nombre.replace(/"/g,'""')}","${f.tel}"`).join('\r\n');
@@ -4126,8 +4051,6 @@ function exportarDeudaXLSX(){
       // Formatear nombre como "APELLIDO, Nombre"
       const partes = a.nombre.trim().split(' ');
       let nombreFormato = a.nombre.trim();
-      // Si el nombre tiene al menos 2 palabras, buscar dónde empieza el nombre (primera palabra minúscula o después del apellido)
-      // Usamos el nombre tal como está en el sistema pero normalizado
       
       const estadoPago = a.deuda > 0 ? 'No pagado' : 'Pagado';
       const monto = a.deuda > 0 ? a.deuda : 0;
@@ -4289,16 +4212,10 @@ function pagosProcesarArchivo(file){
     const lineas = text.split(/\r?\n/).filter(l=>l.trim());
     if(!lineas.length){ pagosStatus('err','El archivo está vacío.'); return; }
 
-    // ── Detectar formato ────────────────────────────────────────
-    // TXT de rendición: línea 1 empieza con "0001" y tiene ancho fijo (>300 chars)
-    // o la primera línea de datos tiene un CBU en pos 26-52
     const esTXT = /^0001/.test(lineas[0]) ||
                   (lineas.length > 1 && lineas[1].length > 200 && /^\d{26}/.test(lineas[1].slice(26,52)));
 
     if(esTXT){
-      // ── Parsear TXT de ancho fijo ─────────────────────────────
-      // Formato: pos 26-52 = CBU, pos 82-91 = importe (centavos), pos 134-136 = código resultado
-      // Códigos: R10 = cobrado, R13/R15 = rechazado banco, R02/R03/R04/R17 = no cobrado
       pagosFilasCrudas = [];
       let cobrados = 0, rechazados = 0, noCobrados = 0;
 
@@ -4311,8 +4228,6 @@ function pagosProcesarArchivo(file){
         const codigoMatch = linea.slice(100).match(/R(\d\d)/);
         const codigo = codigoMatch ? 'R'+codigoMatch[1] : '';
 
-        // Importe en centavos: buscar el número de 9 dígitos que comienza alrededor de pos 79-91
-        // El importe del vencimiento está antes del código
         const importeMatch = linea.slice(68, 100).match(/(\d{9})/);
         const importeCentavos = importeMatch ? parseInt(importeMatch[1]) : 0;
         const importePesos = importeCentavos / 100;
@@ -4324,8 +4239,6 @@ function pagosProcesarArchivo(file){
         else if(rechazado) rechazados++;
         else noCobrados++;
 
-        // Armar fila compatible con el sistema existente
-        // [cbu, importe_str, obs]
         pagosFilasCrudas.push([cbu, String(importeCentavos).padStart(9,'0'), rechazado ? codigo : '']);
       }
 
@@ -4567,8 +4480,6 @@ function cbuAnalizarTexto(textoOverride){
     return;
   }
 
-  // ── Paso 2: recorrer SOLO los alumnos del sistema ───────────────
-  // Para cada alumno, buscar su CBU en el TXT por coincidencia EXACTA de nombre
   cbuResultados = [];
 
   alumnos.forEach(alumno => {
@@ -4711,9 +4622,6 @@ function flashBtn(btnEl){
 }
 // ── FIN TOAST & FEEDBACK VISUAL ───────────────────────────────
 
-
-
-
 function toggleSel(id,el){
   if(el.checked) selected.add(id); else selected.delete(id);
   renderTable();
@@ -4754,10 +4662,6 @@ function eliminarAlumno(id){
   save();buildCarreraFilter();renderStats();renderAlumnosActual();
 }
 
-
-// ── Datos inactivos importados del Excel ──────────────────────────────────────
-// INACTIVOS_EXCEL vacío a propósito: contenía nombres, teléfono, email y montos de deuda
-// de alumnos dados de baja, y no era referenciado por ninguna función activa.
 const INACTIVOS_EXCEL = [];
 
 // (importarInactivosExcel reemplazado por openImportInactivosModal + flujo de mapeo)
@@ -5675,12 +5579,8 @@ function confirmarPago(){
 // ══════════════════════════════════════════════════════════════
 //  DASHBOARD
 // ══════════════════════════════════════════════════════════════
-// Ícono + color según tipo de alerta (reemplaza los emojis sueltos que había en cada mensaje)
 const ALERTA_ICONOS = { danger:'ti-alert-triangle', warn:'ti-alert-circle', ok:'ti-circle-check', info:'ti-info-circle' };
 
-// Navega a Alumnos (o Inactivos) y aplica un filtro de estado, para que los KPIs del
-// dashboard sean clickeables y funcionen como acceso directo — útil para alguien nuevo
-// que todavía no conoce en qué pestaña está cada cosa.
 function dashIrAlumnos(estado){
   switchTab('alumnos', document.getElementById('nav-dd-alumnos'));
   const est = document.getElementById('fil-estado');
@@ -5709,8 +5609,6 @@ function renderDashboard(){
   const totalDeuda = activos.reduce((s,a)=>s+a.deuda,0);
   const inacDeuda  = inactivos.reduce((s,a)=>s+a.deuda,0);
 
-  // Conciliación (se asegura de tener los datos cargados aunque el usuario
-  // nunca haya entrado a esa pestaña en esta sesión)
   concAsegurarCargado();
   const sinConciliar = concContarSinConciliar();
 
@@ -5729,12 +5627,8 @@ function renderDashboard(){
   const totalEgr = cajaMovimientos.reduce((s,m)=>s+m.egreso,0);
   const saldoCaja = totalIng - totalEgr;
 
-  // Año del período actual (para aclarar que "Cobranza acumulada" es de este
-  // ejercicio, no un total histórico desde siempre)
   const anioPeriodo = (mes||'').split(' ').pop() || '';
 
-  // Proveedores (se calcula antes de las alertas porque una factura
-  // vencida dispara una alerta crítica)
   const provPend = proveedores.filter(p=>p.pagado!=='SI');
   const provTotalPend = provPend.reduce((s,p)=>s+(p.precio||0),0);
   const hoyP = new Date(); hoyP.setHours(0,0,0,0);
@@ -5748,8 +5642,6 @@ function renderDashboard(){
   const provPorVencer7 = provConVenc.filter(p=>p._fv>=hoyP&&p._fv<=en7).length;
   const provProximo = provConVenc.find(p=>p._fv>=hoyP) || provConVenc[0];
 
-  // Alertas (sin emoji suelto en el texto: el ícono ahora lo pone el tipo de
-  // alerta). Cada una puede llevar a la pestaña relacionada al clickearla.
   const alertas = [];
   const deudoresPct = activos.length>0 ? deben.length/activos.length*100 : 0;
   if(deudoresPct>10) alertas.push({type:'danger', tab:()=>dashIrAlumnos('Debe'), msg:`${deben.length} alumnos con deuda (${deudoresPct.toFixed(1)}% del total activo)`});
@@ -5773,8 +5665,6 @@ function renderDashboard(){
     .sort((a,b)=>a._fv-b._fv);
   const acsProximo = acsConFecha.find(a=>a._fv>=hoyP) || acsConFecha[0];
 
-  // Presupuestos (para el dashboard sólo cuentan los que ya salieron de
-  // Borrador: Enviado, Aprobado o Rechazado)
   const presupConTotal = presupuestos.map(p=>{
     const tg = (p.itemsGeneral||[]).reduce((s,it)=>s+(it.cant||0)*(it.valorUnit||0),0);
     const tp = (p.itemsPub||[]).reduce((s,it)=>s+(it.total||0),0);
@@ -5835,8 +5725,6 @@ function renderDashboard(){
   document.getElementById('dash-content').innerHTML = html;
 }
 
-// Mes elegido manualmente en "Evolución anual" (se resetea a null = usar el
-// último mes con datos, cada vez que se entra de nuevo a Indicadores)
 let dashMesCobranzaSel = null;
 function dashSeleccionarMesCobranza(mesNombre){
   dashMesCobranzaSel = mesNombre;
@@ -5855,8 +5743,6 @@ function renderIndicadores(){
   const cob = COBRANZA_DATA;
   const cobMeses = cob.filter(m=>(m.pp+m.pmc+m.ef+m.da)>0);
   const ultimoMes = cobMeses[cobMeses.length-1];
-  // Mes que se muestra en el panel "Cobranza mensual": el que se haya clickeado
-  // en Evolución anual, o si no se clickeó ninguno, el último mes con datos.
   const mesMostrado = (dashMesCobranzaSel && cob.find(m=>m.mes===dashMesCobranzaSel)) || ultimoMes;
   const cobUltimo = mesMostrado ? mesMostrado.pp+mesMostrado.pmc+mesMostrado.ef+mesMostrado.da : 0;
 
@@ -6218,7 +6104,6 @@ function ejecutarCierreAnio(){
   showToast(`✅ Cierre de año ejecutado: ${promovidos} alumnos promovidos · Ciclo ${yearLabel} archivado en "Años"`);
 }
 
-
 // ── Aranceles ─────────────────────────────────────────────────────────────────
 const ARANCEL_DRAFT_KEY = 'iscm_arancel_draft';
 const ARANCEL_VIGENTE_KEY = 'iscm_arancel_vigente';
@@ -6460,8 +6345,6 @@ function previewAranceles(){
   document.getElementById('am-vigente').textContent = fmt(vigG.total);
   document.getElementById('ef-vigente').textContent = fmt(vigEF.total);
 
-  // Construir mapa nombre → pctAplicar desde BECAS_SOCIO (fuente de verdad)
-  // Normalizar: "APELLIDO, Nombre" → minúsculas sin tildes para comparar
   const becaMap = {};
   BECAS_SOCIO.forEach(b => {
     if(b.alumno && b.pctAplicar != null){
@@ -6545,8 +6428,6 @@ function aplicarArancel(tipo){
   afectados.forEach(a => {
     const becaPct = inferirBecaPct(a.cuota, arancelActual);
     const newCuota = cuotaConBeca(becaPct, newArancel);
-    // Solo actualiza el valor de cuota para futuros cierres de mes.
-    // No modifica los conceptos pendientes ya generados (esos mantienen su monto original).
     a.cuota = newCuota;
     actualizados++;
   });
@@ -6702,8 +6583,6 @@ function alumnoActivoExiste(nombreBeca){
   return alumnos.some(a=>a.estado!=='Baja'&&normalizar(a.nombre)===key);
 }
 
-// ── 6. VINCULAR alumno en formulario de beca ─────────────────
-// (inyectado en el modal de nueva/editar beca — ver renderBecaModal)
 function becaAlumnoSuggest(val){
   const q = normalizar(val);
   const drop = document.getElementById('beca-alumno-drop');
@@ -6892,7 +6771,6 @@ function abrirHistorialPagos(id){
   document.getElementById('modal-historial-pagos').style.display='flex';
 }
 // ── FIN ACUERDOS + HISTORIAL ─────────────────────────────────────
-
 
 // ── NAV INIT ───────────────────────────────────────────────────
 function tabsScroll(){}
@@ -7633,8 +7511,6 @@ document.addEventListener('keydown', function(e){
 });
 // ── FIN BÚSQUEDA GLOBAL ────────────────────────────────────────
 
-// ── ACUERDO DE PAGO ────────────────────────────────────────────
-// ── Mejora 2: recalcular cuota al cambiar carrera/año ────────
 function recalcCuotaEdit(){
   const carrera = document.getElementById('ed-carrera').value;
   const anio = document.getElementById('ed-anio').value;
@@ -7682,17 +7558,11 @@ function edEstadoChange(){
 
 // ── BECAS ───────────────────────────────────────────────────────
 
-// Datos iniciales del Excel - Resumen becas
-// BECAS_SOCIO vacío a propósito: es solo el valor de arranque antes de que Firestore
-// sincronice los datos reales. Los datos de becas (ingreso familiar, % aprobado, observaciones)
-// viven únicamente en Firestore.
 let BECAS_SOCIO = [];
 
 // HIJOS_PROF vacío a propósito: mismo motivo que BECAS_SOCIO.
 let HIJOS_PROF = [];
 
-// Cargar becas desde localStorage o Firebase
-// Limpia comas en nombres al cargar para unificar formato con el padrón
 function limpiarComasBecas(arr){
   arr.forEach(b=>{
     if(b.alumno) b.alumno = b.alumno.replace(/,/g,'').replace(/\s+/g,' ').trim();
@@ -7902,8 +7772,6 @@ function renderBecas(){
     </div>`).join('');
   }
 
-  // Resumen detallado (descuento estimado, carrera top, distribución por carrera).
-  // Antes vivía duplicado en General ▸ Dashboard; ahora vive acá directamente.
   const dashEl = document.getElementById('beca-dash-resumen');
   if(dashEl){
     const bStats = getBecasDashStats();
@@ -8212,8 +8080,6 @@ function eliminarHijoProf(idx){
 // ── PROVEEDORES ──────────────────────────────────────────────
 const PROV_KEY = 'iscm_proveedores_v1';
 const PROV_HIDDEN_KEY = 'iscm_prov_hidden_v1';
-// PROV_INITIAL vacío a propósito: es solo el valor de arranque antes de que Firestore
-// sincronice los datos reales (ver loadProv). Los proveedores reales viven en Firestore.
 const PROV_INITIAL = [];
 
 let proveedores = [];
@@ -8443,7 +8309,6 @@ function mostrarFila(id){
   saveProv();
   renderProveedores();
 }
-
 
 // ── Proveedor autocomplete ──────────────────────────────────────
 let _provSuggestIdx = -1;
@@ -9079,8 +8944,6 @@ const DEMORA = {
   'Boca de Pago': { dias: 2, habiles: true  }
 };
 
-// Métodos históricos que se unificaron en un solo método vigente.
-// Se usan para migrar filas viejas guardadas con el nombre anterior.
 const METODOS_LEGACY = {
   'Link Crédito': 'Link de Pago',
   'Link Débito':  'Link de Pago'
@@ -9101,8 +8964,6 @@ function concMigrarMetodosLegacy(data){
   return data;
 }
 
-// Feriados nacionales Argentina (año → lista de 'YYYY-MM-DD')
-// Se extiende automáticamente para años conocidos
 const FERIADOS_AR = new Set([
   // 2025
   '2025-01-01','2025-03-03','2025-03-04','2025-04-02','2025-04-17','2025-04-18',
@@ -9120,8 +8981,6 @@ let tasas = {};
 let editandoFilaId = null;
 let _concCargado = false; // evita cargar/registrar listeners de Firebase dos veces
 
-// Asegura que concData esté disponible aunque el usuario nunca haya entrado
-// a la pestaña Conciliación (la necesita el KPI de "Sin conciliar" en Resumen)
 function concAsegurarCargado(){
   if(_concCargado) return;
   _concCargado = true;
@@ -9920,14 +9779,9 @@ function parsearFilasImport(rows){
     const conciliadoRaw = colIdx.conciliado>=0  ? String(row[colIdx.conciliado]||'') : '';
     const conciliado    = (conciliadoRaw.toLowerCase().includes('sí')||conciliadoRaw.toLowerCase().includes('si')) ? 'Si' : 'No';
 
-    // ── Detectar "pasa a mes siguiente" por observación
-    // Si la obs dice "pasa a mayo" (o mes siguiente) y hay fecha de acreditación distinta,
-    // usar el mes de acreditación como mes de destino de la fila.
     const obsLower   = obs.toLowerCase();
     const pasaMes    = obsLower.includes('pasa a') || obsLower.includes('pasa al');
 
-    // Mes destino: si "pasa a otro mes", usar fecha cobro como referencia pero
-    // clasificar la fila en el mes de acreditación (calculado o según obs)
     let fechaDestino = fechaStr;
     if(pasaMes){
       // Calcular fecha de acreditación real según método
@@ -10275,9 +10129,6 @@ function extractoAnalizar(){
   });
 
   extractoCruce = movsPP.map(mov => {
-    // mov.importe = "Créditos" del extracto (lo que el banco ya acreditó, neto de comisión)
-    // netoHTML    = "Importe Neto" calculado en conciliación (lo que esperábamos cobrar)
-    // Son conceptualmente el mismo número pero pueden diferir por redondeo de comisión.
     const TOLERANCIA_MONTO = 100;  // hasta $100 de diferencia (variaciones de comisión)
     const TOLERANCIA_DIAS  = 3;
 
@@ -10534,9 +10385,6 @@ async function ppExtraerTextoPDF(b64){
 }
 
 function ppParsearTextoPDF(texto, nombreArchivo){
-  // Un PDF exportado de Gmail puede contener múltiples mensajes.
-  // Dividimos el texto en bloques por cada ocurrencia de "Resumen recaudaci"
-  // (tolerante a encoding corrupto: ó → ï¿½ o similar).
   const BLOQUE_RE = /Resumen\s+recaudaci[^\n]{0,30}INSTITUTO/gi;
   const indices = [];
   let m;
@@ -10546,18 +10394,12 @@ function ppParsearTextoPDF(texto, nombreArchivo){
     throw new Error(`No se encontró ningún resumen de Pronto Pago en "${nombreArchivo}". Verificá que sea un mail exportado correctamente.`);
   }
 
-  // Parsear cada bloque por separado. Un bloque con error no descarta a los demás:
-  // se acumula el error y se sigue con el resto (ppParsearTextoPDF.errores).
   const resultados = [];
   const errores = [];
   for(let bi = 0; bi < indices.length; bi++){
     try{
     const bloque = texto.slice(indices[bi], indices[bi+1] ?? texto.length);
 
-    // Identificar medio — tolerante a texto con encoding corrupto
-    // QR: título termina en "QR"
-    // LDP: título contiene "LDP" o "- LDP" o "– LDP"
-    // IPM / (MERCEDES): ninguno de los anteriores → Boca de Pago
     let medio = 'Boca de Pago';
     if(/\bQR\b/i.test(bloque.slice(0, 200)))              medio = 'QR';
     else if(/\bLDP\b/i.test(bloque.slice(0, 200)))        medio = 'Link de Pago';
@@ -10571,10 +10413,6 @@ function ppParsearTextoPDF(texto, nombreArchivo){
       fecha_rendicion = `${y}-${mo.padStart(2,'0')}-${d.padStart(2,'0')}`;
     }
 
-    // Extraer monto en formato argentino (1.234.567,89) tras una label.
-    // Devuelve null si la label no aparece (dato realmente ausente), a diferencia
-    // de un importe encontrado que vale $0 (recaudación nula ese día para ese
-    // método, algo perfectamente válido y que antes se confundía con "no encontrado").
     const extraerMonto = (label) => {
       const re = new RegExp(label + '[\\s\\S]{0,80}?\\$?\\s*([\\d\\.]+,[\\d]{2})', 'i');
       const hit = bloque.match(re);
@@ -10610,8 +10448,6 @@ function ppParsearTextoPDF(texto, nombreArchivo){
   return resultados;   // siempre devuelve un array (puede tener 1 o más elementos)
 }
 
-// ── PARSERS TXT ─────────────────────────────────────────────────
-// Formato IPM: texto plano con labels y montos $54.610,25
 function ppParsearTXTIpm(texto, nombre){
   const extraer = (label) => {
     const re = new RegExp(label + '[^\\d$]*\\$?\\s*([\\d\\.]+,[\\d]{2})', 'i');
@@ -10639,11 +10475,6 @@ function ppParsearTXTIpm(texto, nombre){
   return { medio: 'Boca de Pago', fecha_rendicion, bruto, comision_base, iva_comision, neto };
 }
 
-// Formato posicional LDP / QR:
-//   Línea 0: "00000000INST DEL PROFESORADO20260513COBRANZAS PRONTOPAGO QR"
-//   Líneas detalle: "20260512T095314  0000000000731917 ..."
-//   Línea cierre:   "9999999900000002000000000000162472   ..."
-//   Los montos están en centavos (sin coma) en la línea 99999999
 function ppParsearTXTPosicional(texto, nombre){
   const lineas = texto.split('\n').map(l=>l.trimEnd());
 
@@ -10670,12 +10501,7 @@ function ppParsearTXTPosicional(texto, nombre){
   // Línea de cierre 99999999: contiene cantidad TX y monto total en centavos
   const cierre = lineas.find(l=>l.startsWith('99999999')) || '';
   if(!cierre) throw new Error(`No se encontró la línea de cierre (99999999) en "${nombre}".`);
-  // Formato: 99999999 00000002 000000000000162472
-  // posiciones variables — extraemos los números con regex
   const nums = cierre.slice(8).match(/\d+/g) || [];
-  // último número largo = importe total en centavos
-  // el importe recaudado es el total bruto. Si no hay transacciones ese día,
-  // el monto es legítimamente $0 (no significa que falte el dato).
   let bruto = 0;
   for(let i=nums.length-1;i>=0;i--){
     const v = parseInt(nums[i],10);
@@ -10684,9 +10510,6 @@ function ppParsearTXTPosicional(texto, nombre){
 
   if(!fecha_rendicion) throw new Error(`No se encontró la fecha en "${nombre}".`);
 
-  // En los TXT posicionales no viene comisión ni neto — usamos 0 como placeholder;
-  // los datos reales de comisión/neto vienen del mail (PDF), pero si se usa solo TXT
-  // dejamos comision=0 y neto=bruto para que el usuario lo ajuste en el preview.
   return { medio, fecha_rendicion, bruto, comision_base: 0, iva_comision: 0, neto: bruto,
            _soloDetalle: true };
 }
@@ -11486,13 +11309,6 @@ function mostrarPPError(msg){
   </div>
 </div>
 
-<!-- Modal Cambio de Código: eliminado. Era código muerto de un sistema de
-     "código de acceso" (iscm_access_key) que no gateaba nada — la función
-     que abría este modal no era llamada desde ningún lado, y el código
-     nunca se verificaba en el login real (loginCheck usa usuario+contraseña).
-     Solo quedaba escribiendo un valor por defecto débil ('1227', codificado
-     con btoa, que no es cifrado) en localStorage y Firebase en cada carga. -->
-
 <script>
 // ── LOGIN ──────────────────────────────────────────────────────────────
 (function(){
@@ -11503,12 +11319,6 @@ function mostrarPPError(msg){
   // Ocultar app mientras el login está activo
   document.body.style.overflow = 'hidden';
 
-  // "Recordarme": precargar solo el usuario guardado en este dispositivo.
-  // Antes también se guardaba la contraseña en texto plano en localStorage,
-  // legible por cualquiera con acceso al navegador (u otro script/extensión
-  // corriendo en la página). Ahora solo se recuerda el nombre de usuario;
-  // el navegador (Chrome/Edge/Firefox) ya ofrece guardar la contraseña de
-  // forma cifrada con su propio gestor si el usuario lo acepta.
   try{
     const recordado = JSON.parse(localStorage.getItem('iscm_recordar')||'null');
     if(recordado && recordado.user){
@@ -11523,11 +11333,6 @@ function loginKeyInput(el){
   document.getElementById('login-err').textContent = '';
 }
 
-// ── SISTEMA DE USUARIOS (Firebase Authentication real) ─────────────────
-// Ya no hay hashes de contraseña en Firestore: Firebase Authentication
-// guarda las contraseñas de forma segura (scrypt) fuera del alcance de
-// cualquier cliente. El rol viaja como "custom claim" del token, firmado
-// por Firebase — el navegador no puede falsificarlo.
 let sesionActual = null; // {uid, user, nombre, rol}
 let _loginDone = false;
 
@@ -11539,9 +11344,6 @@ function loginTogglePass(){
   eye.className = showing ? 'ti ti-eye' : 'ti ti-eye-off';
 }
 
-// "Recordarme": guarda solo el usuario en este dispositivo si el checkbox
-// está tildado, o borra lo guardado si no lo está. Ya NO guarda la
-// contraseña. Se llama tras un intento de login exitoso.
 function loginGuardarRecordar(user){
   const chk = document.getElementById('login-recordar');
   try{
@@ -11562,9 +11364,6 @@ async function loginCheck(){
 
   try{
     await window._auth.signIn(user, pass);
-    // sesionActual y loginOk() se resuelven en el listener window._auth.onChange
-    // (más abajo), que se dispara tanto para logins nuevos como para
-    // sesiones restauradas al recargar la página.
     loginGuardarRecordar(user);
   }catch(e){
     if(e.code === 'mfa-required'){
@@ -11661,15 +11460,9 @@ function cerrarSesion(){
   document.getElementById('login-pass').value = '';
 }
 
-// ── Conexión con Firebase Authentication ────────────────────────────────
-// Este listener se dispara tanto para un login nuevo (loginCheck llamó
-// signIn) como para una sesión restaurada al recargar la página (F5),
-// ya que Firebase Auth persiste la sesión mientras la pestaña siga abierta.
 async function _iniciarSesionDesdeFirebase(user){
   if(_loginDone) return;
 
-  // Si quedó un timestamp de inactividad viejo (recarga tras más de 30
-  // minutos sin uso), cerramos sesión en vez de restaurarla.
   const ts = Number(sessionStorage.getItem('iscm_actividad_ts')||0);
   if(ts && (Date.now() - ts) > INACTIVIDAD_MS){
     sessionStorage.removeItem('iscm_actividad_ts');
@@ -11938,8 +11731,6 @@ async function guardarMiCuenta(){
     }
     return;
   }
-  // Ya cambió la contraseña: sacar el aviso de "debe cambiar contraseña"
-  // para que no vuelva a aparecer en el próximo login.
   try{ await window._cf.confirmarPasswordCambiada(); }catch(e){ console.warn('No se pudo limpiar debeCambiarPass', e); }
   if(sesionActual) sesionActual._mustChange = false;
   document.getElementById('mc-nueva').value='';
@@ -12002,10 +11793,6 @@ async function mfaDesactivar(){
   mfaRenderEstado();
   showToast('Verificación en dos pasos desactivada', 'error');
 }
-
-// Sistema de "código de acceso" (abrirCambioCodigo/cerrarCambioCodigo/cambioSiguiente/
-// cambioGuardar) eliminado: era código muerto, ver nota junto al modal más arriba.
-
 
 // ── RESUMEN MENSUAL ────────────────────────────────────────────
 const RM_KEY = 'iscm_resumen_mensual_v1';
@@ -12186,9 +11973,6 @@ function rmImprimir(){
   window.print();
   setTimeout(()=>{ const s = document.getElementById('_rm_print_style'); if(s) s.remove(); }, 500);
 }
-
-// aplicarContactosExcel() eliminada: era una migración de un solo uso que ya se ejecutó.
-// Contenía una copia completa de nombres/tel/email de alumnos embebida en el código.
 
 // ── FIN RESUMEN MENSUAL ────────────────────────────────────────
 
@@ -12458,17 +12242,8 @@ function anioVerDetalle(id){
 })();
 // ── FIN ARCHIVO POR AÑO ────────────────────────────────────────
 
-// La restauración de sesión ahora la maneja _attachAuthListener() /
-// window._auth.onChange(), definido junto al resto del sistema de login.
-
 // ══════════════════════════════════════════════════════════════
 // MÓDULO ARCHIVOS
-// Estructura en Firebase: iscm_archivos_v1 → { carpetas: [...], archivos: [...] }
-// ══════════════════════════════════════════════════════════════
-// ══════════════════════════════════════════════════════════════
-// MÓDULO ARCHIVOS — almacenamiento dividido en Firestore
-// Metadatos (carpetas + lista de archivos sin data): iscm_arch_meta
-// Cada archivo (con data base64):                    iscm_arch_file_{id}
 // ══════════════════════════════════════════════════════════════
 const ARCH_META_KEY  = 'iscm_arch_meta';   // { carpetas:[], archivos:[{id,carpetaId,nombre,tipo,tamano,fecha}] }
 const ARCH_FILE_PFX  = 'iscm_arch_file_';  // + id → { data: base64 }
@@ -13719,11 +13494,6 @@ async function asistEliminarReg(id){
   showToast('🗑 Registro eliminado');
 }
 
-// ── Menú de exportación (Word / PDF) ─────────────────────────
-// Muestra un pequeño popup anclado al botón que lo disparó.
-// tipo: 'reg' (un registro), 'alumno' (todos los meses de un alumno),
-//       'activo' (el que está abierto en el panel), 'todos' (exportar todo)
-// ref : id de registro o alumnoId según el tipo
 function asistMenuExportar(tipo, ref, anchorEl){
   // Cerrar cualquier menú previo
   const prev = document.getElementById('asist-export-menu');
@@ -13804,9 +13574,6 @@ function asistEjecutarExportar(tipo, ref, fmt){
   }
 }
 
-// ── Generador central de documentos ──────────────────────────
-// grupos: [{ nombre, carrera, anio, regs:[{periodo, materias}] }]
-// fmt: 'word' | 'pdf'
 function asistGenerarDocumento(grupos, fmt, nombreArchivo){
   const MESES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
   const fn = p=>{ const[m,y]=(p||'').split(' '); return (parseInt(y)||0)*100+MESES.indexOf(m); };
@@ -13969,10 +13736,6 @@ function bonoSetValorUnitario(val){
   if(typeof showToast==='function') showToast('💾 Valor por bono actualizado a '+fmt(final));
 }
 
-// ── Calculadora de descuento por bonos de contribución ──────────
-// Escalas: 2-3 bonos rendidos = 10% | 4-5 = 20% | 6 o más = 35%
-// El % se aplica sobre el arancel curricular vigente (según carrera/año del alumno),
-// y si el alumno está becado, primero se le descuenta su % de beca al curricular.
 function bonoKeyAlumno(b){
   if(b.alumnoId) return 'id:'+b.alumnoId;
   if(b.alumno && b.alumno.trim()) return 'nm:'+normalizar(b.alumno);
@@ -14126,8 +13889,6 @@ function renderBonos(){
     const noActive = b.rindio===false ? 'active' : '';
     const descHtml = bonoCeldaDescuento(b, _bonoVistos);
 
-    // Botón "marcar todos como Sí" — aparece una sola vez por alumno, si tiene más de 1 bono
-    // y todavía le queda algún bono sin marcar como Sí (evita clickear uno por uno).
     let grupoBtnHtml = '';
     const key = bonoKeyAlumno(b);
     if(key && !_grupoBtnVistos.has(key)){
@@ -14176,8 +13937,6 @@ function bonoSet(id, field, val){
   saveBonos();
 }
 
-// Marca de una sola vez todos los bonos de un mismo alumno como "Sí rindió"
-// (evita tener que clickear "Sí" bono por bono cuando trae varios juntos).
 function bonoMarcarTodosSi(key){
   if(!key) return;
   const grupo = bonos.filter(b=>bonoKeyAlumno(b)===key);
@@ -14504,14 +14263,11 @@ function bonosPrint(){
 <!-- TOAST CONTAINER -->
 <div id="toast-container"></div>
 
-
 <!-- PRE-CARGA DE DATOS: Conciliación Bancaria (inyectado automáticamente) -->
 <script>
 (function() {
   var CONC_KEY  = 'iscm_conciliacion_v1';
   var SEED_FLAG = 'iscm_seed_mayo2026';   // marca de "ya se cargó esta planilla"
-  // Cargar solo si nunca se cargó esta planilla (flag ausente)
-  // Una vez cargada, respeta cualquier dato que el usuario agregue después
   if (!localStorage.getItem(SEED_FLAG)) {
     localStorage.setItem(SEED_FLAG, '1');  // marcar antes de cargar
     var seedData = {"2026-05": [{"fecha": "2026-04-30", "metodo": "Boca de Pago", "bruto": 0, "comisionManual": null, "acreditado": null, "fechaAcred": "2026-05-05", "pasaMesSig": true, "conciliado": "Si", "obs": "Pasa a mayo. Corresponde del 30/04/2026 al 03/05/2026"}, {"fecha": "2026-04-30", "metodo": "Link Débito", "bruto": 48200.36, "comisionManual": null, "acreditado": null, "fechaAcred": "2026-05-05", "pasaMesSig": true, "conciliado": "No", "obs": "Pasa a mayo. Corresponde del 30/04/2026 al 03/05/2026"}, {"fecha": "2026-04-30", "metodo": "QR", "bruto": 2056585.86, "comisionManual": null, "acreditado": 2036678.18, "fechaAcred": "2026-05-04", "pasaMesSig": true, "conciliado": "Si", "obs": "Pasa a mayo. Corresponde del 30/04/2026 al 03/05/2026"}, {"fecha": "2026-05-04", "metodo": "Boca de Pago", "bruto": 281553.94, "comisionManual": 40279.91, "acreditado": 241274.03, "fechaAcred": "2026-05-06", "pasaMesSig": false, "conciliado": "Si", "obs": ""}, {"fecha": "2026-05-04", "metodo": "Link Débito", "bruto": 48200.36, "comisionManual": null, "acreditado": 47617.14, "fechaAcred": "2026-05-06", "pasaMesSig": false, "conciliado": "Si", "obs": ""}, {"fecha": "2026-05-04", "metodo": "QR", "bruto": 1729526.2, "comisionManual": null, "acreditado": 1712784.42, "fechaAcred": "2026-05-05", "pasaMesSig": false, "conciliado": "Si", "obs": ""}, {"fecha": "2026-05-05", "metodo": "Boca de Pago", "bruto": 150638.36, "comisionManual": 1822.71, "acreditado": 148815.65, "fechaAcred": "2026-05-07", "pasaMesSig": false, "conciliado": "Si", "obs": ""}, {"fecha": "2026-05-05", "metodo": "Link Débito", "bruto": 84629.4, "comisionManual": null, "acreditado": 83605.39, "fechaAcred": "2026-05-07", "pasaMesSig": false, "conciliado": "Si", "obs": ""}, {"fecha": "2026-05-05", "metodo": "QR", "bruto": 1585616.72, "comisionManual": null, "acreditado": 1570268.02, "fechaAcred": "2026-05-06", "pasaMesSig": false, "conciliado": "Si", "obs": ""}, {"fecha": "2026-05-06", "metodo": "Boca de Pago", "bruto": 148510.93, "comisionManual": 1796.98, "acreditado": null, "fechaAcred": "2026-05-08", "pasaMesSig": false, "conciliado": "No", "obs": ""}, {"fecha": "2026-05-06", "metodo": "QR", "bruto": 1289146.07, "comisionManual": null, "acreditado": 1276667.2, "fechaAcred": "2026-05-07", "pasaMesSig": false, "conciliado": "Si", "obs": ""}, {"fecha": "2026-05-07", "metodo": "QR", "bruto": 1204372.77, "comisionManual": null, "acreditado": 1192714.5, "fechaAcred": "2026-05-08", "pasaMesSig": false, "conciliado": "Si", "obs": ""}, {"fecha": "2026-05-08", "metodo": "Boca de Pago", "bruto": 181581.28, "comisionManual": 2197.13, "acreditado": 179384.15, "fechaAcred": "2026-05-12", "pasaMesSig": false, "conciliado": "Si", "obs": "Corresponde del 08/05/2026 al 10/05/2026"}, {"fecha": "2026-05-08", "metodo": "Link Débito", "bruto": 0, "comisionManual": null, "acreditado": null, "fechaAcred": "2026-05-12", "pasaMesSig": false, "conciliado": "Si", "obs": "Corresponde del 08/05/2026 al 10/05/2026"}, {"fecha": "2026-05-08", "metodo": "QR", "bruto": 5655946.4, "comisionManual": null, "acreditado": 5601197.06, "fechaAcred": "2026-05-11", "pasaMesSig": false, "conciliado": "Si", "obs": "Corresponde del 08/05/2026 al 10/05/2026"}, {"fecha": "2026-05-11", "metodo": "Boca de Pago", "bruto": 123519.54, "comisionManual": 1494.57, "acreditado": 122024.97, "fechaAcred": "2026-05-13", "pasaMesSig": false, "conciliado": "Si", "obs": ""}, {"fecha": "2026-05-11", "metodo": "Link Débito", "bruto": 87152.83, "comisionManual": null, "acreditado": 86098.28, "fechaAcred": "2026-05-13", "pasaMesSig": false, "conciliado": "Si", "obs": ""}, {"fecha": "2026-05-11", "metodo": "QR", "bruto": 1669049.59, "comisionManual": null, "acreditado": 1652893.19, "fechaAcred": "2026-05-12", "pasaMesSig": false, "conciliado": "Si", "obs": ""}, {"fecha": "2026-05-12", "metodo": "Boca de Pago", "bruto": 54610.25, "comisionManual": 660.78, "acreditado": null, "fechaAcred": "2026-05-14", "pasaMesSig": false, "conciliado": "No", "obs": ""}, {"fecha": "2026-05-12", "metodo": "Link Débito", "bruto": 162472.01, "comisionManual": null, "acreditado": null, "fechaAcred": "2026-05-14", "pasaMesSig": false, "conciliado": "No", "obs": ""}, {"fecha": "2026-05-12", "metodo": "QR", "bruto": 1734782.97, "comisionManual": null, "acreditado": 1717990.35, "fechaAcred": "2026-05-13", "pasaMesSig": false, "conciliado": "Si", "obs": ""}]};
