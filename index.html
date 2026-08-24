@@ -449,7 +449,8 @@ img, svg{max-width:100%}
   import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-firestore.js";
   import {
     getAuth, onAuthStateChanged, setPersistence, browserSessionPersistence,
-    signInWithEmailAndPassword, signOut, updatePassword
+    signInWithEmailAndPassword, signOut, updatePassword,
+    multiFactor, TotpMultiFactorGenerator, getMultiFactorResolver
   } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-auth.js";
   import { initializeAppCheck, ReCaptchaV3Provider } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-app-check.js";
   import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-functions.js";
@@ -487,13 +488,36 @@ img, svg{max-width:100%}
 
   const DOMINIO_EMAIL_USUARIOS = "iscm-gestion.local";
 
+  let _mfaResolverPendiente = null;
+
   // ── API de autenticación real, expuesta al resto del script (no-module) ──
   window._auth = {
-    // Inicia sesión con usuario (no email) + contraseña. Devuelve el
-    // UserCredential de Firebase o tira el error tal cual para que el
-    // login lo interprete (auth/wrong-password, auth/user-disabled, etc.)
-    signIn: (usuario, pass) =>
-      signInWithEmailAndPassword(auth, `${usuario}@${DOMINIO_EMAIL_USUARIOS}`, pass),
+    // Inicia sesión con usuario (no email) + contraseña. Si la cuenta tiene
+    // verificación en dos pasos activada, en vez de resolver normalmente
+    // tira un error {code:'mfa-required'} — el login.js de afuera debe
+    // pedir el código y llamar a mfaCompletarLogin().
+    signIn: async (usuario, pass) => {
+      try {
+        return await signInWithEmailAndPassword(auth, `${usuario}@${DOMINIO_EMAIL_USUARIOS}`, pass);
+      } catch (e) {
+        if (e.code === 'auth/multi-factor-auth-required') {
+          _mfaResolverPendiente = getMultiFactorResolver(auth, e);
+          const err = new Error('Requiere verificación en dos pasos');
+          err.code = 'mfa-required';
+          throw err;
+        }
+        throw e;
+      }
+    },
+    // Completa un login que quedó pendiente de segundo factor.
+    mfaCompletarLogin: async (codigo) => {
+      if (!_mfaResolverPendiente) throw new Error('No hay una verificación en dos pasos pendiente.');
+      const hint = _mfaResolverPendiente.hints[0];
+      const cred = TotpMultiFactorGenerator.assertionForSignIn(hint.uid, codigo);
+      const result = await _mfaResolverPendiente.resolveSignIn(cred);
+      _mfaResolverPendiente = null;
+      return result;
+    },
     signOut: () => signOut(auth),
     cambiarMiPassword: (nueva) => {
       if (!auth.currentUser) return Promise.reject(new Error("No hay sesión activa."));
@@ -504,6 +528,29 @@ img, svg{max-width:100%}
       if (!auth.currentUser) return null;
       const t = await auth.currentUser.getIdTokenResult(forzarRefresh);
       return t.claims.rol || null;
+    },
+    // ── Verificación en dos pasos (TOTP) ────────────────────────────────
+    mfaActivo: () => {
+      if (!auth.currentUser) return false;
+      return multiFactor(auth.currentUser).enrolledFactors.length > 0;
+    },
+    // Genera un secreto TOTP nuevo para empezar a activar el 2FA. Hay que
+    // mostrarle secret.secretKey al usuario para que lo cargue a mano en
+    // su app (Google Authenticator, Authy, etc.), y después confirmar con
+    // mfaActivar() usando un código que la app le genere con ese secreto.
+    mfaGenerarSecreto: async () => {
+      const session = await multiFactor(auth.currentUser).getSession();
+      return await TotpMultiFactorGenerator.generateSecret(session);
+    },
+    mfaActivar: async (secret, codigo, nombreFactor) => {
+      const cred = TotpMultiFactorGenerator.assertionForEnrollment(secret, codigo);
+      await multiFactor(auth.currentUser).enroll(cred, nombreFactor);
+    },
+    mfaDesactivar: async () => {
+      const factores = multiFactor(auth.currentUser).enrolledFactors;
+      for (const f of factores) {
+        await multiFactor(auth.currentUser).unenroll(f);
+      }
     },
     // Suscribirse a cambios de sesión (login, logout, sesión restaurada al
     // recargar la página). Devuelve la función para desuscribirse.
@@ -11386,6 +11433,23 @@ function mostrarPPError(msg){
       </div>
     </div>
 
+    <div style="margin-top:20px;padding-top:16px;border-top:1px solid #eee">
+      <div style="font-size:12px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Verificación en dos pasos</div>
+      <div id="mfa-estado" style="font-size:13px;color:#555;margin-bottom:10px"></div>
+
+      <div id="mfa-setup" style="display:none;background:#f8f8f4;border-radius:7px;padding:12px;margin-bottom:10px">
+        <div style="font-size:12px;color:#555;margin-bottom:6px">1. Instalá una app como Google Authenticator o Authy en tu celular.</div>
+        <div style="font-size:12px;color:#555;margin-bottom:6px">2. Agregá una cuenta nueva a mano ("clave de configuración") con esta clave:</div>
+        <div id="mfa-secreto" style="font-family:monospace;font-size:14px;font-weight:700;background:#fff;border:1px solid #ddd;border-radius:5px;padding:8px;margin-bottom:10px;word-break:break-all;user-select:all"></div>
+        <div class="field"><label>Código de 6 dígitos que te generó la app</label><input type="text" id="mfa-codigo" placeholder="123456" autocomplete="off" maxlength="6"></div>
+        <div id="mfa-err" style="color:#c0392b;font-size:12px;margin-bottom:8px"></div>
+        <button class="btn primary" onclick="mfaConfirmar()">Confirmar y activar</button>
+      </div>
+
+      <button class="btn" id="mfa-btn-activar" onclick="mfaIniciarActivacion()">Activar verificación en dos pasos</button>
+      <button class="btn danger" id="mfa-btn-desactivar" style="display:none" onclick="mfaDesactivar()">Desactivar verificación en dos pasos</button>
+    </div>
+
     <div class="modal-actions">
       <button class="btn" onclick="closeModal('modal-mi-cuenta')">Cerrar</button>
     </div>
@@ -11503,6 +11567,17 @@ async function loginCheck(){
     // sesiones restauradas al recargar la página.
     loginGuardarRecordar(user);
   }catch(e){
+    if(e.code === 'mfa-required'){
+      const codigo = prompt('Este usuario tiene verificación en dos pasos activada.\n\nIngresá el código de 6 dígitos de tu app de verificación:');
+      if(!codigo){ errEl.textContent = 'Verificación en dos pasos cancelada.'; return; }
+      try{
+        await window._auth.mfaCompletarLogin(codigo.trim());
+        loginGuardarRecordar(user);
+      }catch(e2){
+        errEl.textContent = 'Código incorrecto o vencido. Volvé a intentar el login.';
+      }
+      return;
+    }
     let msg = 'Usuario o contraseña incorrectos.';
     if(e.code === 'auth/user-disabled') msg = 'Este usuario está desactivado. Contactá al administrador.';
     else if(e.code === 'auth/too-many-requests') msg = 'Demasiados intentos fallidos. Probá de nuevo en unos minutos.';
@@ -11802,6 +11877,7 @@ function openMiCuenta(){
   document.getElementById('mc-err').textContent='';
   document.getElementById('mc-user-err').textContent='';
   document.getElementById('mc-nombre-err').textContent='';
+  mfaRenderEstado();
   document.getElementById('modal-mi-cuenta').classList.add('open');
 }
 
@@ -11870,8 +11946,66 @@ async function guardarMiCuenta(){
   showToast('✅ Contraseña actualizada');
 }
 
+// ── Verificación en dos pasos (TOTP) ─────────────────────────────────────
+let _mfaSecretoPendiente = null;
+
+function mfaRenderEstado(){
+  const activo = window._auth.mfaActivo();
+  document.getElementById('mfa-estado').innerHTML = activo
+    ? '<span style="color:#27ae60">✓ Activada</span> — tu cuenta pide un código además de la contraseña al iniciar sesión.'
+    : '<span style="color:#888">Desactivada</span> — cualquiera que sepa tu contraseña puede entrar sin nada más.';
+  document.getElementById('mfa-btn-activar').style.display = activo ? 'none' : '';
+  document.getElementById('mfa-btn-desactivar').style.display = activo ? '' : 'none';
+  document.getElementById('mfa-setup').style.display = 'none';
+}
+
+async function mfaIniciarActivacion(){
+  try{
+    _mfaSecretoPendiente = await window._auth.mfaGenerarSecreto();
+  }catch(e){
+    showToast(e.message || 'No se pudo generar el código de activación', 'error');
+    return;
+  }
+  document.getElementById('mfa-secreto').textContent = _mfaSecretoPendiente.secretKey;
+  document.getElementById('mfa-codigo').value = '';
+  document.getElementById('mfa-err').textContent = '';
+  document.getElementById('mfa-setup').style.display = '';
+}
+
+async function mfaConfirmar(){
+  const codigo = (document.getElementById('mfa-codigo').value||'').trim();
+  const errEl = document.getElementById('mfa-err');
+  errEl.textContent = '';
+  if(!/^\d{6}$/.test(codigo)){ errEl.textContent = 'Ingresá el código de 6 dígitos.'; return; }
+  if(!_mfaSecretoPendiente){ errEl.textContent = 'Volvé a apretar "Activar" para generar un código nuevo.'; return; }
+  try{
+    await window._auth.mfaActivar(_mfaSecretoPendiente, codigo, sesionActual?.nombre || 'Autenticador');
+  }catch(e){
+    errEl.textContent = e.code === 'auth/invalid-verification-code'
+      ? 'Código incorrecto. Fijate que la hora del celular esté bien sincronizada.'
+      : (e.message || 'No se pudo activar.');
+    return;
+  }
+  _mfaSecretoPendiente = null;
+  mfaRenderEstado();
+  showToast('✅ Verificación en dos pasos activada');
+}
+
+async function mfaDesactivar(){
+  if(!confirm('¿Desactivar la verificación en dos pasos? A partir de ahora, con la contraseña va a alcanzar para entrar.')) return;
+  try{
+    await window._auth.mfaDesactivar();
+  }catch(e){
+    showToast(e.message || 'No se pudo desactivar', 'error');
+    return;
+  }
+  mfaRenderEstado();
+  showToast('Verificación en dos pasos desactivada', 'error');
+}
+
 // Sistema de "código de acceso" (abrirCambioCodigo/cerrarCambioCodigo/cambioSiguiente/
 // cambioGuardar) eliminado: era código muerto, ver nota junto al modal más arriba.
+
 
 // ── RESUMEN MENSUAL ────────────────────────────────────────────
 const RM_KEY = 'iscm_resumen_mensual_v1';
