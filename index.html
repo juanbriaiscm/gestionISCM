@@ -1418,6 +1418,7 @@ img, svg{max-width:100%}
       <option value="Hijo prof.">Hijo/a de profesor/a</option>
     </select>
     <button class="btn" onclick="becaLimpiarFiltros()" style="height:34px;font-size:12px"><i class="ti ti-x"></i>Limpiar filtros</button>
+    <button class="btn" onclick="openImportBecasModal()" style="height:34px;font-size:12px;background:#eef4ff;border-color:#a8c0e8;color:#1a3d6e"><i class="ti ti-file-import"></i>Importar Excel</button>
     <button class="btn" onclick="exportarBecasCSV()" style="height:34px;font-size:12px;background:#e8f5ee;border-color:#a8d5b8;color:#1a4d2e"><i class="ti ti-download"></i>Exportar CSV</button>
   </div>
 
@@ -2572,6 +2573,57 @@ Apariente, Luciano | 1003-1004 | V"></textarea>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
       <button onclick="closeBecaModal()" style="background:#f0f0e8;border:none;border-radius:8px;padding:9px 18px;font-size:13px;cursor:pointer">Cancelar</button>
       <button onclick="guardarBeca()" style="background:#1a1a2e;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-size:13px;cursor:pointer;font-weight:600"><i class="ti ti-device-floppy"></i>Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL IMPORTAR BECAS DESDE EXCEL -->
+<div class="overlay" id="modal-import-becas">
+  <div class="modal" style="max-width:680px">
+    <h2><i class="ti ti-file-import"></i>Importar Becas desde Excel</h2>
+
+    <!-- Step 1: Subir archivo -->
+    <div id="beca-imp-step-upload">
+      <div class="drop-zone" id="beca-imp-drop-zone"
+        onclick="document.getElementById('beca-imp-file-input').click()"
+        ondragover="event.preventDefault();this.classList.add('drag')"
+        ondragleave="this.classList.remove('drag')"
+        ondrop="becaImpHandleDrop(event)">
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <div style="font-size:14px;font-weight:600;color:#555;margin-bottom:4px">Arrastrá un archivo o hacé clic para elegir</div>
+        <div style="font-size:11px;color:#888">Soporta .xlsx, .xls y .csv</div>
+      </div>
+      <input type="file" id="beca-imp-file-input" accept=".xlsx,.xls,.csv" style="display:none" onchange="becaImpHandleFile(this.files[0])">
+      <div id="beca-imp-status"></div>
+    </div>
+
+    <!-- Step 2: Mapear columnas -->
+    <div id="beca-imp-step-mapping" style="display:none">
+      <div style="font-size:12px;color:#666;margin-bottom:8px">
+        Archivo cargado: <strong id="beca-imp-filename"></strong> — <span id="beca-imp-rowcount"></span> filas detectadas.
+        <br>Mapeá las columnas de tu Excel con los campos del sistema (solo "Alumno" es obligatorio):
+      </div>
+      <div id="beca-imp-col-mapping" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px"></div>
+      <div style="margin-bottom:8px">
+        <div style="font-size:12px;font-weight:600;color:#444;margin-bottom:6px">Vista previa (primeras 5 filas):</div>
+        <div style="overflow-x:auto;max-height:180px;overflow-y:auto;border:1px solid #e8e8e0;border-radius:6px">
+          <table id="beca-imp-preview-table"></table>
+        </div>
+      </div>
+      <div class="field" style="max-width:260px">
+        <label>Si el alumno ya tiene una beca cargada</label>
+        <select id="beca-imp-modo-duplicado" style="width:100%;height:34px;border-radius:6px;border:1px solid #d0d0c8;padding:0 8px;font-size:12px">
+          <option value="actualizar">Actualizar sus datos</option>
+          <option value="omitir">Omitir (dejar como está)</option>
+        </select>
+      </div>
+      <div id="beca-imp-status2"></div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('modal-import-becas');resetImportBecas()">Cancelar</button>
+      <button class="btn" id="beca-imp-btn-volver" style="display:none" onclick="becaImpVolverUpload()">‹ Volver</button>
+      <button class="btn primary" id="beca-imp-btn-importar" style="display:none" onclick="becaImpConfirmarImport()"><i class="ti ti-circle-check"></i>Importar becas</button>
     </div>
   </div>
 </div>
@@ -8081,6 +8133,287 @@ function eliminarHijoProf(idx){
   becaSave();
   renderBecas();
 }
+
+// ── Importar Becas desde Excel/CSV ────────────────────────────
+let becaImpXLSXData = []; // filas del archivo parseado
+let becaImpHeaders = [];  // columnas detectadas
+
+function openImportBecasModal(){
+  resetImportBecas();
+  document.getElementById('modal-import-becas').classList.add('open');
+}
+
+function resetImportBecas(){
+  becaImpXLSXData = [];
+  becaImpHeaders = [];
+  document.getElementById('beca-imp-step-upload').style.display='';
+  document.getElementById('beca-imp-step-mapping').style.display='none';
+  document.getElementById('beca-imp-btn-volver').style.display='none';
+  document.getElementById('beca-imp-btn-importar').style.display='none';
+  const s = document.getElementById('beca-imp-status');
+  s.className=''; s.style.display='none'; s.textContent='';
+  const s2 = document.getElementById('beca-imp-status2');
+  if(s2){ s2.className=''; s2.style.display='none'; s2.textContent=''; }
+  document.getElementById('beca-imp-file-input').value='';
+  document.getElementById('beca-imp-drop-zone').classList.remove('drag');
+}
+
+function becaImpVolverUpload(){
+  document.getElementById('beca-imp-step-upload').style.display='';
+  document.getElementById('beca-imp-step-mapping').style.display='none';
+  document.getElementById('beca-imp-btn-volver').style.display='none';
+  document.getElementById('beca-imp-btn-importar').style.display='none';
+}
+
+function becaImpHandleDrop(e){
+  e.preventDefault();
+  document.getElementById('beca-imp-drop-zone').classList.remove('drag');
+  const file = e.dataTransfer.files[0];
+  if(file) becaImpHandleFile(file);
+}
+
+function becaImpHandleFile(file){
+  if(!file) return;
+  const ext = file.name.split('.').pop().toLowerCase();
+  const status = document.getElementById('beca-imp-status');
+  status.textContent='⏳ Leyendo archivo...';
+  status.className='info'; status.style.display='block';
+
+  if(ext==='csv'){
+    const reader = new FileReader();
+    reader.onload = e => becaImpProcesarCSV(e.target.result, file.name);
+    reader.readAsText(file, 'UTF-8');
+  } else if(ext==='xlsx'||ext==='xls'){
+    if(typeof XLSX==='undefined'){
+      const s=document.createElement('script');
+      s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      s.onload=()=>becaImpLeerXLSX(file);
+      s.onerror=()=>{ status.textContent='❌ No se pudo cargar la librería XLSX. Exportá como CSV e intentá de nuevo.'; status.className='err'; };
+      document.head.appendChild(s);
+    } else {
+      becaImpLeerXLSX(file);
+    }
+  } else {
+    status.textContent='❌ Formato no soportado. Usá .xlsx, .xls o .csv';
+    status.className='err';
+  }
+}
+
+function becaImpLeerXLSX(file){
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(e.target.result, {type:'array', cellDates:true});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:true});
+      becaImpProcesarRows(rows, file.name);
+    } catch(err){
+      const status = document.getElementById('beca-imp-status');
+      status.textContent='❌ Error al leer el archivo: '+err.message;
+      status.className='err';
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function becaImpProcesarCSV(text, filename){
+  const sep = text.indexOf(';')>text.indexOf(',') && text.split(';').length > text.split(',').length ? ';' : ',';
+  const lines = text.trim().split(/\r?\n/);
+  const rows = lines.map(l => l.split(sep).map(c => c.replace(/^"|"$/g,'').trim()));
+  becaImpProcesarRows(rows, filename);
+}
+
+function becaImpProcesarRows(rows, filename){
+  const status = document.getElementById('beca-imp-status');
+  if(!rows || rows.length<2){
+    status.textContent='❌ El archivo está vacío o no tiene datos suficientes.';
+    status.className='err'; return;
+  }
+  becaImpHeaders = rows[0].map(h=>String(h||'').trim());
+  becaImpXLSXData = rows.slice(1).filter(r=>r.some(c=>c!==''&&c!==null&&c!==undefined));
+
+  status.textContent=`✅ Archivo cargado: ${filename}`;
+  status.className='ok';
+
+  document.getElementById('beca-imp-step-mapping').style.display='';
+  document.getElementById('beca-imp-step-upload').style.display='none';
+  document.getElementById('beca-imp-filename').textContent=filename;
+  document.getElementById('beca-imp-rowcount').textContent=`${becaImpXLSXData.length} filas de datos`;
+  document.getElementById('beca-imp-btn-volver').style.display='';
+  document.getElementById('beca-imp-btn-importar').style.display='';
+
+  const campos = [
+    {key:'alumno',      label:'Alumno',                        required:true},
+    {key:'anio',        label:'Año',                           required:false},
+    {key:'carrera',     label:'Carrera',                       required:false},
+    {key:'ciudad',      label:'Ciudad',                        required:false},
+    {key:'integrantes', label:'Integrantes grupo familiar',    required:false},
+    {key:'ingreso',     label:'Ingreso total ($)',             required:false},
+    {key:'vivienda',    label:'Vivienda',                      required:false},
+    {key:'transporte',  label:'Transporte',                    required:false},
+    {key:'salud',       label:'Cobertura de salud',            required:false},
+    {key:'pctAprobado', label:'% aprobado',                    required:false},
+    {key:'anterior',    label:'¿Solicitó beca años ant.?',     required:false},
+    {key:'paga',        label:'¿Paga cuota?',                  required:false},
+    {key:'pctAplicar',  label:'% a aplicar',                   required:false},
+    {key:'obs',         label:'Observaciones',                 required:false},
+  ];
+  const autoMap = col => {
+    const c = col.toLowerCase();
+    if(/alumno|apellido|nombre/.test(c)) return 'alumno';
+    if(/a[ñn]o|year|grado/.test(c)) return 'anio';
+    if(/carrera|curso/.test(c)) return 'carrera';
+    if(/ciudad|localidad/.test(c)) return 'ciudad';
+    if(/integrante|conviv|familiar/.test(c)) return 'integrantes';
+    if(/ingreso|sueldo|monto/.test(c)) return 'ingreso';
+    if(/vivienda/.test(c)) return 'vivienda';
+    if(/transporte/.test(c)) return 'transporte';
+    if(/salud|obra social|prepaga/.test(c)) return 'salud';
+    if(/aprobad/.test(c)) return 'pctAprobado';
+    if(/anterior|a[ñn]os ant/.test(c)) return 'anterior';
+    if(/paga|cuota/.test(c)) return 'paga';
+    if(/aplicar|% beca|porcentaje beca/.test(c)) return 'pctAplicar';
+    if(/obs|coment|nota/.test(c)) return 'obs';
+    return '';
+  };
+
+  const mapDiv = document.getElementById('beca-imp-col-mapping');
+  mapDiv.innerHTML = campos.map(f=>`
+    <div class="field">
+      <label>${f.label}${f.required?' <span style="color:#c0392b">*</span>':''}</label>
+      <select id="beca-map-${f.key}" style="width:100%;height:34px;padding:0 8px;border-radius:6px;border:1px solid #d0d0c8;font-size:12px">
+        <option value="">— no mapear —</option>
+        ${becaImpHeaders.map((h,i)=>`<option value="${i}" ${autoMap(h)===f.key?'selected':''}>${h||'(col '+i+')'}</option>`).join('')}
+      </select>
+    </div>
+  `).join('');
+
+  const preview5 = becaImpXLSXData.slice(0,5);
+  const previewTable = document.getElementById('beca-imp-preview-table');
+  previewTable.innerHTML = `<thead><tr>${becaImpHeaders.map(h=>`<th>${h||'—'}</th>`).join('')}</tr></thead>`
+    + `<tbody>${preview5.map(r=>`<tr>${becaImpHeaders.map((_,i)=>`<td>${r[i]??''}</td>`).join('')}</tr>`).join('')}</tbody>`;
+}
+
+// Convierte un valor de porcentaje aceptando "85", "85%", "0.85", 0.85 → devuelve 0-1
+function becaImpParsePct(raw){
+  if(raw===undefined||raw===null||raw==='') return 0;
+  if(typeof raw==='number') return raw>1 ? raw/100 : raw;
+  let s = String(raw).replace('%','').replace(',','.').trim();
+  let n = parseFloat(s);
+  if(isNaN(n)) return 0;
+  return n>1 ? n/100 : n;
+}
+
+// Convierte un valor monetario aceptando formato argentino ($1.234.567,89) o simple
+function becaImpParseMonto(raw){
+  if(raw===undefined||raw===null||raw==='') return 0;
+  if(typeof raw==='number') return raw;
+  const s = String(raw).replace(/[$\s]/g,'').replace(/\./g,'').replace(',','.');
+  return parseFloat(s)||0;
+}
+
+// Normaliza SI/NO desde valores variados (si, sí, x, true, 1, no, etc.)
+function becaImpParseSiNo(raw, def){
+  if(raw===undefined||raw===null||raw==='') return def;
+  const s = String(raw).trim().toLowerCase();
+  if(['si','sí','x','true','1','yes'].includes(s)) return 'SI';
+  if(['no','false','0'].includes(s)) return 'NO';
+  return def;
+}
+
+function becaImpConfirmarImport(){
+  const getMapVal = key => {
+    const el = document.getElementById('beca-map-'+key);
+    return el && el.value!=='' ? parseInt(el.value) : null;
+  };
+  const iAlumno = getMapVal('alumno');
+  const s2 = document.getElementById('beca-imp-status2');
+
+  if(iAlumno===null){
+    s2.textContent='❌ El campo "Alumno" es obligatorio para importar.';
+    s2.className='err'; s2.style.display='block'; return;
+  }
+
+  const iAnio        = getMapVal('anio');
+  const iCarrera     = getMapVal('carrera');
+  const iCiudad      = getMapVal('ciudad');
+  const iIntegrantes = getMapVal('integrantes');
+  const iIngreso     = getMapVal('ingreso');
+  const iVivienda    = getMapVal('vivienda');
+  const iTransporte  = getMapVal('transporte');
+  const iSalud       = getMapVal('salud');
+  const iPctAprobado = getMapVal('pctAprobado');
+  const iAnterior    = getMapVal('anterior');
+  const iPaga        = getMapVal('paga');
+  const iPctAplicar  = getMapVal('pctAplicar');
+  const iObs         = getMapVal('obs');
+
+  const modoDuplicado = document.getElementById('beca-imp-modo-duplicado').value; // actualizar | omitir
+  const aniosValid = ['1°','2°','3°','4°'];
+  const carrerasValid = ['Psicopedagogía','Educación Física','Inglés','Matemática','Trabajo Social','Enfermería','Escena del Crimen'];
+  const viviendaValid = ['Propia','Alquilada','Cedida'];
+  const saludValid = ['No','SI - Obra Social','SI - Prepaga','SI - Obra Social y Prepaga'];
+
+  let agregados=0, actualizados=0, omitidos=0, errores=0;
+
+  becaImpXLSXData.forEach(row => {
+    const alumno = String(row[iAlumno]||'').replace(/,/g,'').replace(/\s+/g,' ').trim();
+    if(!alumno){ errores++; return; }
+
+    let anio = iAnio!==null ? String(row[iAnio]||'').trim() : '1°';
+    if(!aniosValid.includes(anio)){
+      const n = parseInt(anio);
+      anio = (n>=1&&n<=4) ? n+'°' : '1°';
+    }
+
+    let carrera = iCarrera!==null ? String(row[iCarrera]||'').trim() : 'Psicopedagogía';
+    const carreraMatch = carrerasValid.find(c=>c.toLowerCase()===carrera.toLowerCase());
+    if(carreraMatch) carrera = carreraMatch;
+
+    let vivienda = iVivienda!==null ? String(row[iVivienda]||'').trim() : 'Propia';
+    const viviendaMatch = viviendaValid.find(v=>v.toLowerCase()===vivienda.toLowerCase());
+    vivienda = viviendaMatch || (vivienda || 'Propia');
+
+    let salud = iSalud!==null ? String(row[iSalud]||'').trim() : 'No';
+    const saludMatch = saludValid.find(v=>v.toLowerCase()===salud.toLowerCase());
+    salud = saludMatch || (salud || 'No');
+
+    const beca = {
+      alumno,
+      anio,
+      carrera,
+      ciudad: iCiudad!==null ? String(row[iCiudad]||'').trim() : '',
+      integrantes: iIntegrantes!==null ? (parseInt(row[iIntegrantes])||0) : 0,
+      ingreso: iIngreso!==null ? becaImpParseMonto(row[iIngreso]) : 0,
+      vivienda,
+      transporte: iTransporte!==null ? String(row[iTransporte]||'').trim() : '',
+      salud,
+      pctAprobado: iPctAprobado!==null ? becaImpParsePct(row[iPctAprobado]) : 0,
+      anterior: iAnterior!==null ? becaImpParseSiNo(row[iAnterior],'SI') : 'SI',
+      paga: iPaga!==null ? becaImpParseSiNo(row[iPaga],'SI') : 'SI',
+      pctAplicar: iPctAplicar!==null ? becaImpParsePct(row[iPctAplicar]) : 0,
+      obs: iObs!==null ? String(row[iObs]||'').trim() : '',
+    };
+
+    const idxExistente = BECAS_SOCIO.findIndex(b=>normalizar(b.alumno)===normalizar(alumno));
+    if(idxExistente>=0){
+      if(modoDuplicado==='omitir'){ omitidos++; return; }
+      BECAS_SOCIO[idxExistente] = beca;
+      actualizados++;
+    } else {
+      BECAS_SOCIO.push(beca);
+      agregados++;
+    }
+  });
+
+  BECAS_SOCIO.sort((a,b)=>a.alumno.toUpperCase().localeCompare(b.alumno.toUpperCase()));
+  becaSave();
+  renderBecas();
+  closeModal('modal-import-becas');
+  resetImportBecas();
+  showToast(`Importación completada · ${agregados} agregadas · ${actualizados} actualizadas${omitidos>0?' · '+omitidos+' omitidas':''}${errores>0?' · '+errores+' ignoradas':''}`);
+}
+// ── FIN Importar Becas ────────────────────────────────────────
 // ── FIN BECAS ───────────────────────────────────────────────────
 
 // ── PROVEEDORES ──────────────────────────────────────────────
