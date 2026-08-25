@@ -7337,21 +7337,27 @@ function gsSearch(q){
   });
 
   // ── Proveedores ─────────────────────────────────────────────
-  proveedores.filter(p=>
-    normalizar(p.nombre||'').includes(ql) ||
-    normalizar(p.categoria||'').includes(ql) ||
-    normalizar(p.obs||'').includes(ql) ||
-    normalizar(p.descripcion||'').includes(ql)
-  ).slice(0,4).forEach(p=>{
+  const qlFactura = normalizarFactura(q);
+  proveedores.filter(p=>{
+    const matchFactura = normalizar(p.nFactura||'').includes(ql) ||
+      (qlFactura !== '' && normalizarFactura(p.nFactura).includes(qlFactura));
+    return normalizar(p.nombre||'').includes(ql) ||
+      normalizar(p.categoria||'').includes(ql) ||
+      normalizar(p.observaciones||'').includes(ql) ||
+      matchFactura;
+  }).slice(0,4).forEach(p=>{
     let hint = `${p.pagado==='SI'?'✓ Pagado':'⏳ Pendiente'}`;
     if(p.precio) hint += ` · ${fmt(p.precio)}`;
+    const matchFactura = normalizar(p.nFactura||'').includes(ql) ||
+      (qlFactura !== '' && normalizarFactura(p.nFactura).includes(qlFactura));
     if(!normalizar(p.nombre||'').includes(ql)){
-      if(normalizar(p.categoria||'').includes(ql)) hint = `Cat: ${p.categoria} · `+hint;
-      else if(normalizar(p.obs||'').includes(ql)) hint = `Obs: ${(p.obs||'').slice(0,40)}`;
+      if(matchFactura) hint = `Factura: ${p.nFactura} · `+hint;
+      else if(normalizar(p.categoria||'').includes(ql)) hint = `Cat: ${p.categoria} · `+hint;
+      else if(normalizar(p.observaciones||'').includes(ql)) hint = `Obs: ${(p.observaciones||'').slice(0,40)}`;
     }
     results.push({
       section:'🏢 Proveedores', icon:p.pagado==='SI'?'✅':'⏳', title:p.nombre, sub:hint,
-      action:()=>{ switchTab('proveedores',document.querySelector('[onclick*=proveedores]')); document.getElementById('prov-search').value=p.nombre; renderProveedores(); gsClose(); }
+      action:()=>{ switchTab('proveedores',document.querySelector('[onclick*=proveedores]')); document.getElementById('prov-search').value=p.nFactura&&matchFactura?p.nFactura:p.nombre; renderProveedores(); gsClose(); }
     });
   });
 
