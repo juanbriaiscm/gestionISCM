@@ -8143,6 +8143,15 @@ function provToggleMostrarOcultas(){
   renderProveedores();
 }
 
+// Normaliza un N° de factura a sus partes numéricas sin ceros a la izquierda
+// (ej: "00001-00000008", "1-8" y "0001-8" quedan todos como "1-8"),
+// para que la búsqueda no dependa del formato exacto de padding/separador.
+function normalizarFactura(s){
+  const partes = (s||'').toString().split(/[^0-9]+/).filter(Boolean);
+  if(!partes.length) return '';
+  return partes.map(seg => String(parseInt(seg,10))).join('-');
+}
+
 function getProvFiltered(){
   const raw = (document.getElementById('prov-search')||{value:''}).value.trim();
   const fp  = (document.getElementById('prov-fil-pagado')||{value:''}).value;
@@ -8150,6 +8159,7 @@ function getProvFiltered(){
 
   const hayBusqueda = raw !== '';
   const qText = hayBusqueda ? normalizar(raw) : '';
+  const qFactura = hayBusqueda ? normalizarFactura(raw) : '';
   // Si el texto parece un número, comparar también con el precio
   const rawNum = raw.replace(/[.\s$]/g,'').replace(',','.');
   const esNumero = hayBusqueda && rawNum !== '' && !isNaN(rawNum);
@@ -8167,7 +8177,8 @@ function getProvFiltered(){
     // Búsqueda de texto (nombre, N° factura, observaciones, monto)
     if(hayBusqueda){
       const matchNombre  = normalizar(p.nombre||'').includes(qText);
-      const matchFactura = normalizar(p.nFactura||'').includes(qText);
+      const matchFactura = normalizar(p.nFactura||'').includes(qText)
+        || (qFactura !== '' && normalizarFactura(p.nFactura).includes(qFactura));
       const matchObs     = normalizar(p.observaciones||'').includes(qText);
       const matchMonto   = esNumero
         ? String(p.precio).includes(rawNum)
