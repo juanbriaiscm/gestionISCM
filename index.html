@@ -159,7 +159,7 @@ tr:hover td{background:#fafaf5}
 .add-concepto-row .field{margin-bottom:0}
 #mes-field{display:none}
 /* Tabs fuera de .main: mismo ancho y centrado */
-#tab-becas,#tab-acuerdos,#tab-proveedores,#tab-conciliacion,#tab-presupuestos{padding:16px;max-width:1600px;margin:0 auto}
+#tab-becas,#tab-acuerdos,#tab-proveedores,#tab-conciliacion,#tab-presupuestos,#tab-debitos{padding:16px;max-width:1600px;margin:0 auto}
 
 /* Dashboard */
 .dash-section-title{font-size:13px;font-weight:700;color:#1a1a2e;text-transform:uppercase;letter-spacing:.06em;margin:18px 0 10px;display:flex;align-items:center;gap:8px}
@@ -803,6 +803,7 @@ img, svg{max-width:100%}
           <button class="dd-item" id="nav-dd-proveedores" onclick="switchTab('proveedores',this)"><i class="ti ti-truck"></i>Proveedores</button>
           <button class="dd-item" id="nav-dd-bonos" onclick="switchTab('bonos',this);bpProfesInit()"><i class="ti ti-ticket"></i>Bonos</button>
           <button class="dd-item" id="nav-dd-archivos" onclick="switchTab('archivos',this)"><i class="ti ti-folder"></i>Archivos</button>
+          <button class="dd-item" id="nav-dd-debitos" onclick="switchTab('debitos',this)"><i class="ti ti-file-alert"></i>Débitos</button>
           <button class="dd-item" id="nav-dd-resumen-mensual" onclick="switchTab('resumen-mensual',this)"><i class="ti ti-file-text"></i>Resumen Mensual</button>
         </div>
       </div>
@@ -1418,7 +1419,6 @@ img, svg{max-width:100%}
       <option value="Hijo prof.">Hijo/a de profesor/a</option>
     </select>
     <button class="btn" onclick="becaLimpiarFiltros()" style="height:34px;font-size:12px"><i class="ti ti-x"></i>Limpiar filtros</button>
-    <button class="btn" onclick="openImportBecasModal()" style="height:34px;font-size:12px;background:#eef4ff;border-color:#a8c0e8;color:#1a3d6e"><i class="ti ti-file-import"></i>Importar Excel</button>
     <button class="btn" onclick="exportarBecasCSV()" style="height:34px;font-size:12px;background:#e8f5ee;border-color:#a8d5b8;color:#1a4d2e"><i class="ti ti-download"></i>Exportar CSV</button>
   </div>
 
@@ -1988,6 +1988,84 @@ Apariente, Luciano | 1003-1004 | V"></textarea>
 <div id="bono-alumno-drop" class="bono-drop"></div>
 
 <!-- TAB CONCILIACIÓN BANCARIA -->
+<div id="tab-debitos" style="display:none">
+
+  <!-- Header -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+    <div>
+      <h2 style="margin:0;font-size:17px;color:#1a1a2e"><i class="ti ti-file-alert"></i> Débitos (Reporte de Cobros)</h2>
+      <p style="font-size:12px;color:#888;margin:4px 0 0">Historial de cobros por débito/CBU, con motivo de rechazo, buscando por identificador.</p>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button onclick="debAbrirImport()" class="btn primary"><i class="ti ti-file-import"></i>Subir CSV</button>
+      <input type="file" id="deb-file-input" accept=".csv,.txt" style="display:none" onchange="debProcesarArchivo(this)">
+      <button onclick="debBorrarTodo()" class="btn" style="background:#fdecea;border-color:#f1b0b7;color:#842029" title="Borra todo el historial cargado"><i class="ti ti-trash"></i>Vaciar</button>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px" id="deb-stats"></div>
+
+  <!-- Buscador / filtros -->
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+    <input type="text" id="deb-search" placeholder="Buscar por identificador, referencia u observación..." oninput="debRender()"
+      style="flex:1;min-width:240px;height:34px;padding:0 12px;border-radius:6px;border:1px solid #d0d0c8;font-size:13px">
+    <select id="deb-fil-estado" onchange="debRender()" style="height:34px;border-radius:6px;border:1px solid #d0d0c8;font-size:13px">
+      <option value="">Todos los estados</option>
+      <option value="rechazado">✗ Rechazados</option>
+      <option value="aceptado">✓ Aceptados</option>
+    </select>
+    <select id="deb-fil-motivo" onchange="debRender()" style="height:34px;border-radius:6px;border:1px solid #d0d0c8;font-size:13px">
+      <option value="">Todos los motivos</option>
+    </select>
+  </div>
+
+  <!-- Tabla -->
+  <div class="table-wrap" style="margin-bottom:14px;overflow-x:auto">
+    <table style="width:100%;min-width:900px">
+      <thead>
+        <tr>
+          <th style="width:110px">Identificador</th>
+          <th style="width:90px">Fecha Vto.</th>
+          <th>Referencia</th>
+          <th style="text-align:right;width:110px">Importe</th>
+          <th style="width:90px;text-align:center">Estado</th>
+          <th>Motivo</th>
+          <th style="width:36px"></th>
+        </tr>
+      </thead>
+      <tbody id="deb-tbody"></tbody>
+    </table>
+    <div id="deb-empty" style="display:none;text-align:center;padding:30px;color:#888;font-size:13px">
+      No hay datos cargados todavía. Subí un CSV del banco para empezar.
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: importar CSV de débitos -->
+<div class="overlay" id="modal-import-deb">
+  <div class="modal" style="max-width:580px">
+    <h2><i class="ti ti-file-import"></i> Subir Reporte de Cobros (CSV)</h2>
+    <div class="info-box" style="margin-bottom:12px">
+      Subí el CSV que exporta el banco (separado por <strong>;</strong>). Se toma el <strong>identificador</strong>, la <strong>referencia</strong>, el <strong>importe</strong> y las <strong>observaciones</strong> de rechazo. Las filas ya cargadas (mismo identificador + fecha) <strong>no se duplican</strong>.
+    </div>
+    <div style="background:#f8f8f4;border:2px dashed #d0d0c8;border-radius:8px;padding:20px;text-align:center;cursor:pointer;margin-bottom:12px" onclick="document.getElementById('deb-file-input').click()">
+      <div style="font-size:28px;margin-bottom:8px">📄</div>
+      <div style="font-size:13px;font-weight:600;color:#1a1a2e">Hacer clic para elegir el archivo</div>
+      <div style="font-size:11px;color:#888;margin-top:4px">Soporta .csv (separado por ;)</div>
+    </div>
+    <div id="deb-import-preview" style="display:none">
+      <div style="font-size:12px;font-weight:600;color:#666;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Vista previa</div>
+      <div id="deb-import-preview-stats" style="font-size:13px;margin-bottom:8px"></div>
+    </div>
+    <div id="deb-import-error" style="display:none;background:#f8d7da;border:1px solid #f5c6cb;border-radius:6px;padding:10px 14px;font-size:12px;color:#721c24;margin-top:8px"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="document.getElementById('modal-import-deb').classList.remove('open')">Cancelar</button>
+      <button class="btn primary" id="deb-btn-confirmar-import" style="display:none" onclick="debConfirmarImport()"><i class="ti ti-check"></i>Importar datos</button>
+    </div>
+  </div>
+</div>
+
 <div id="tab-conciliacion" style="display:none">
 
   <!-- Header -->
@@ -2573,57 +2651,6 @@ Apariente, Luciano | 1003-1004 | V"></textarea>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
       <button onclick="closeBecaModal()" style="background:#f0f0e8;border:none;border-radius:8px;padding:9px 18px;font-size:13px;cursor:pointer">Cancelar</button>
       <button onclick="guardarBeca()" style="background:#1a1a2e;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-size:13px;cursor:pointer;font-weight:600"><i class="ti ti-device-floppy"></i>Guardar</button>
-    </div>
-  </div>
-</div>
-
-<!-- MODAL IMPORTAR BECAS DESDE EXCEL -->
-<div class="overlay" id="modal-import-becas">
-  <div class="modal" style="max-width:680px">
-    <h2><i class="ti ti-file-import"></i>Importar Becas desde Excel</h2>
-
-    <!-- Step 1: Subir archivo -->
-    <div id="beca-imp-step-upload">
-      <div class="drop-zone" id="beca-imp-drop-zone"
-        onclick="document.getElementById('beca-imp-file-input').click()"
-        ondragover="event.preventDefault();this.classList.add('drag')"
-        ondragleave="this.classList.remove('drag')"
-        ondrop="becaImpHandleDrop(event)">
-        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-        <div style="font-size:14px;font-weight:600;color:#555;margin-bottom:4px">Arrastrá un archivo o hacé clic para elegir</div>
-        <div style="font-size:11px;color:#888">Soporta .xlsx, .xls y .csv</div>
-      </div>
-      <input type="file" id="beca-imp-file-input" accept=".xlsx,.xls,.csv" style="display:none" onchange="becaImpHandleFile(this.files[0])">
-      <div id="beca-imp-status"></div>
-    </div>
-
-    <!-- Step 2: Mapear columnas -->
-    <div id="beca-imp-step-mapping" style="display:none">
-      <div style="font-size:12px;color:#666;margin-bottom:8px">
-        Archivo cargado: <strong id="beca-imp-filename"></strong> — <span id="beca-imp-rowcount"></span> filas detectadas.
-        <br>Mapeá las columnas de tu Excel con los campos del sistema (solo "Alumno" es obligatorio):
-      </div>
-      <div id="beca-imp-col-mapping" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px"></div>
-      <div style="margin-bottom:8px">
-        <div style="font-size:12px;font-weight:600;color:#444;margin-bottom:6px">Vista previa (primeras 5 filas):</div>
-        <div style="overflow-x:auto;max-height:180px;overflow-y:auto;border:1px solid #e8e8e0;border-radius:6px">
-          <table id="beca-imp-preview-table"></table>
-        </div>
-      </div>
-      <div class="field" style="max-width:260px">
-        <label>Si el alumno ya tiene una beca cargada</label>
-        <select id="beca-imp-modo-duplicado" style="width:100%;height:34px;border-radius:6px;border:1px solid #d0d0c8;padding:0 8px;font-size:12px">
-          <option value="actualizar">Actualizar sus datos</option>
-          <option value="omitir">Omitir (dejar como está)</option>
-        </select>
-      </div>
-      <div id="beca-imp-status2"></div>
-    </div>
-
-    <div class="modal-actions">
-      <button class="btn" onclick="closeModal('modal-import-becas');resetImportBecas()">Cancelar</button>
-      <button class="btn" id="beca-imp-btn-volver" style="display:none" onclick="becaImpVolverUpload()">‹ Volver</button>
-      <button class="btn primary" id="beca-imp-btn-importar" style="display:none" onclick="becaImpConfirmarImport()"><i class="ti ti-circle-check"></i>Importar becas</button>
     </div>
   </div>
 </div>
@@ -3526,7 +3553,8 @@ function switchTab(tab, el){
     'aranceles':'nav-finanzas-group','conciliacion':'nav-finanzas-group',
     'caja':'nav-finanzas-group','cobranza':'nav-finanzas-group',
     'presupuestos':'nav-finanzas-group','acuerdos':'nav-finanzas-group',
-    'proveedores':'nav-admin-group','bonos':'nav-admin-group','archivos':'nav-admin-group','resumen-mensual':'nav-admin-group'
+    'proveedores':'nav-admin-group','bonos':'nav-admin-group','archivos':'nav-admin-group',
+    'resumen-mensual':'nav-admin-group','debitos':'nav-admin-group'
   };
   const groupId = groups[tab];
   if(groupId){ const g=document.getElementById(groupId); if(g) g.classList.add('active'); }
@@ -3535,7 +3563,7 @@ function switchTab(tab, el){
   // Mostrar/ocultar tabs
   const tabs = ['dashboard','indicadores','alumnos','inactivos','resumen','aranceles','cobranza',
     'caja','acuerdos','becas','proveedores','presupuestos','conciliacion',
-    'resumen-mensual','anios','archivos','asistencias','bonos'];
+    'resumen-mensual','anios','archivos','asistencias','bonos','debitos'];
   tabs.forEach(t=>{
     const el = document.getElementById('tab-'+t);
     if(el) el.style.display = t===tab?'':'none';
@@ -3560,6 +3588,7 @@ function switchTab(tab, el){
   if(tab==='resumen-mensual') renderResumenMensual();
   if(tab==='anios') renderAnios();
   if(tab==='archivos') archivosInit();
+  if(tab==='debitos') debInit();
   if(tab==='asistencias') asistInit();
   if(tab==='bonos'){ bonosInit(); if(typeof bpProfesInit==='function') bpProfesInit(); }
 }
@@ -7389,27 +7418,21 @@ function gsSearch(q){
   });
 
   // ── Proveedores ─────────────────────────────────────────────
-  const qlFactura = normalizarFactura(q);
-  proveedores.filter(p=>{
-    const matchFactura = normalizar(p.nFactura||'').includes(ql) ||
-      (qlFactura !== '' && normalizarFactura(p.nFactura).includes(qlFactura));
-    return normalizar(p.nombre||'').includes(ql) ||
-      normalizar(p.categoria||'').includes(ql) ||
-      normalizar(p.observaciones||'').includes(ql) ||
-      matchFactura;
-  }).slice(0,4).forEach(p=>{
+  proveedores.filter(p=>
+    normalizar(p.nombre||'').includes(ql) ||
+    normalizar(p.categoria||'').includes(ql) ||
+    normalizar(p.obs||'').includes(ql) ||
+    normalizar(p.descripcion||'').includes(ql)
+  ).slice(0,4).forEach(p=>{
     let hint = `${p.pagado==='SI'?'✓ Pagado':'⏳ Pendiente'}`;
     if(p.precio) hint += ` · ${fmt(p.precio)}`;
-    const matchFactura = normalizar(p.nFactura||'').includes(ql) ||
-      (qlFactura !== '' && normalizarFactura(p.nFactura).includes(qlFactura));
     if(!normalizar(p.nombre||'').includes(ql)){
-      if(matchFactura) hint = `Factura: ${p.nFactura} · `+hint;
-      else if(normalizar(p.categoria||'').includes(ql)) hint = `Cat: ${p.categoria} · `+hint;
-      else if(normalizar(p.observaciones||'').includes(ql)) hint = `Obs: ${(p.observaciones||'').slice(0,40)}`;
+      if(normalizar(p.categoria||'').includes(ql)) hint = `Cat: ${p.categoria} · `+hint;
+      else if(normalizar(p.obs||'').includes(ql)) hint = `Obs: ${(p.obs||'').slice(0,40)}`;
     }
     results.push({
       section:'🏢 Proveedores', icon:p.pagado==='SI'?'✅':'⏳', title:p.nombre, sub:hint,
-      action:()=>{ switchTab('proveedores',document.querySelector('[onclick*=proveedores]')); document.getElementById('prov-search').value=p.nFactura&&matchFactura?p.nFactura:p.nombre; renderProveedores(); gsClose(); }
+      action:()=>{ switchTab('proveedores',document.querySelector('[onclick*=proveedores]')); document.getElementById('prov-search').value=p.nombre; renderProveedores(); gsClose(); }
     });
   });
 
@@ -8133,287 +8156,6 @@ function eliminarHijoProf(idx){
   becaSave();
   renderBecas();
 }
-
-// ── Importar Becas desde Excel/CSV ────────────────────────────
-let becaImpXLSXData = []; // filas del archivo parseado
-let becaImpHeaders = [];  // columnas detectadas
-
-function openImportBecasModal(){
-  resetImportBecas();
-  document.getElementById('modal-import-becas').classList.add('open');
-}
-
-function resetImportBecas(){
-  becaImpXLSXData = [];
-  becaImpHeaders = [];
-  document.getElementById('beca-imp-step-upload').style.display='';
-  document.getElementById('beca-imp-step-mapping').style.display='none';
-  document.getElementById('beca-imp-btn-volver').style.display='none';
-  document.getElementById('beca-imp-btn-importar').style.display='none';
-  const s = document.getElementById('beca-imp-status');
-  s.className=''; s.style.display='none'; s.textContent='';
-  const s2 = document.getElementById('beca-imp-status2');
-  if(s2){ s2.className=''; s2.style.display='none'; s2.textContent=''; }
-  document.getElementById('beca-imp-file-input').value='';
-  document.getElementById('beca-imp-drop-zone').classList.remove('drag');
-}
-
-function becaImpVolverUpload(){
-  document.getElementById('beca-imp-step-upload').style.display='';
-  document.getElementById('beca-imp-step-mapping').style.display='none';
-  document.getElementById('beca-imp-btn-volver').style.display='none';
-  document.getElementById('beca-imp-btn-importar').style.display='none';
-}
-
-function becaImpHandleDrop(e){
-  e.preventDefault();
-  document.getElementById('beca-imp-drop-zone').classList.remove('drag');
-  const file = e.dataTransfer.files[0];
-  if(file) becaImpHandleFile(file);
-}
-
-function becaImpHandleFile(file){
-  if(!file) return;
-  const ext = file.name.split('.').pop().toLowerCase();
-  const status = document.getElementById('beca-imp-status');
-  status.textContent='⏳ Leyendo archivo...';
-  status.className='info'; status.style.display='block';
-
-  if(ext==='csv'){
-    const reader = new FileReader();
-    reader.onload = e => becaImpProcesarCSV(e.target.result, file.name);
-    reader.readAsText(file, 'UTF-8');
-  } else if(ext==='xlsx'||ext==='xls'){
-    if(typeof XLSX==='undefined'){
-      const s=document.createElement('script');
-      s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
-      s.onload=()=>becaImpLeerXLSX(file);
-      s.onerror=()=>{ status.textContent='❌ No se pudo cargar la librería XLSX. Exportá como CSV e intentá de nuevo.'; status.className='err'; };
-      document.head.appendChild(s);
-    } else {
-      becaImpLeerXLSX(file);
-    }
-  } else {
-    status.textContent='❌ Formato no soportado. Usá .xlsx, .xls o .csv';
-    status.className='err';
-  }
-}
-
-function becaImpLeerXLSX(file){
-  const reader = new FileReader();
-  reader.onload = e => {
-    try {
-      const wb = XLSX.read(e.target.result, {type:'array', cellDates:true});
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:true});
-      becaImpProcesarRows(rows, file.name);
-    } catch(err){
-      const status = document.getElementById('beca-imp-status');
-      status.textContent='❌ Error al leer el archivo: '+err.message;
-      status.className='err';
-    }
-  };
-  reader.readAsArrayBuffer(file);
-}
-
-function becaImpProcesarCSV(text, filename){
-  const sep = text.indexOf(';')>text.indexOf(',') && text.split(';').length > text.split(',').length ? ';' : ',';
-  const lines = text.trim().split(/\r?\n/);
-  const rows = lines.map(l => l.split(sep).map(c => c.replace(/^"|"$/g,'').trim()));
-  becaImpProcesarRows(rows, filename);
-}
-
-function becaImpProcesarRows(rows, filename){
-  const status = document.getElementById('beca-imp-status');
-  if(!rows || rows.length<2){
-    status.textContent='❌ El archivo está vacío o no tiene datos suficientes.';
-    status.className='err'; return;
-  }
-  becaImpHeaders = rows[0].map(h=>String(h||'').trim());
-  becaImpXLSXData = rows.slice(1).filter(r=>r.some(c=>c!==''&&c!==null&&c!==undefined));
-
-  status.textContent=`✅ Archivo cargado: ${filename}`;
-  status.className='ok';
-
-  document.getElementById('beca-imp-step-mapping').style.display='';
-  document.getElementById('beca-imp-step-upload').style.display='none';
-  document.getElementById('beca-imp-filename').textContent=filename;
-  document.getElementById('beca-imp-rowcount').textContent=`${becaImpXLSXData.length} filas de datos`;
-  document.getElementById('beca-imp-btn-volver').style.display='';
-  document.getElementById('beca-imp-btn-importar').style.display='';
-
-  const campos = [
-    {key:'alumno',      label:'Alumno',                        required:true},
-    {key:'anio',        label:'Año',                           required:false},
-    {key:'carrera',     label:'Carrera',                       required:false},
-    {key:'ciudad',      label:'Ciudad',                        required:false},
-    {key:'integrantes', label:'Integrantes grupo familiar',    required:false},
-    {key:'ingreso',     label:'Ingreso total ($)',             required:false},
-    {key:'vivienda',    label:'Vivienda',                      required:false},
-    {key:'transporte',  label:'Transporte',                    required:false},
-    {key:'salud',       label:'Cobertura de salud',            required:false},
-    {key:'pctAprobado', label:'% aprobado',                    required:false},
-    {key:'anterior',    label:'¿Solicitó beca años ant.?',     required:false},
-    {key:'paga',        label:'¿Paga cuota?',                  required:false},
-    {key:'pctAplicar',  label:'% a aplicar',                   required:false},
-    {key:'obs',         label:'Observaciones',                 required:false},
-  ];
-  const autoMap = col => {
-    const c = col.toLowerCase();
-    if(/alumno|apellido|nombre/.test(c)) return 'alumno';
-    if(/a[ñn]o|year|grado/.test(c)) return 'anio';
-    if(/carrera|curso/.test(c)) return 'carrera';
-    if(/ciudad|localidad/.test(c)) return 'ciudad';
-    if(/integrante|conviv|familiar/.test(c)) return 'integrantes';
-    if(/ingreso|sueldo|monto/.test(c)) return 'ingreso';
-    if(/vivienda/.test(c)) return 'vivienda';
-    if(/transporte/.test(c)) return 'transporte';
-    if(/salud|obra social|prepaga/.test(c)) return 'salud';
-    if(/aprobad/.test(c)) return 'pctAprobado';
-    if(/anterior|a[ñn]os ant/.test(c)) return 'anterior';
-    if(/paga|cuota/.test(c)) return 'paga';
-    if(/aplicar|% beca|porcentaje beca/.test(c)) return 'pctAplicar';
-    if(/obs|coment|nota/.test(c)) return 'obs';
-    return '';
-  };
-
-  const mapDiv = document.getElementById('beca-imp-col-mapping');
-  mapDiv.innerHTML = campos.map(f=>`
-    <div class="field">
-      <label>${f.label}${f.required?' <span style="color:#c0392b">*</span>':''}</label>
-      <select id="beca-map-${f.key}" style="width:100%;height:34px;padding:0 8px;border-radius:6px;border:1px solid #d0d0c8;font-size:12px">
-        <option value="">— no mapear —</option>
-        ${becaImpHeaders.map((h,i)=>`<option value="${i}" ${autoMap(h)===f.key?'selected':''}>${h||'(col '+i+')'}</option>`).join('')}
-      </select>
-    </div>
-  `).join('');
-
-  const preview5 = becaImpXLSXData.slice(0,5);
-  const previewTable = document.getElementById('beca-imp-preview-table');
-  previewTable.innerHTML = `<thead><tr>${becaImpHeaders.map(h=>`<th>${h||'—'}</th>`).join('')}</tr></thead>`
-    + `<tbody>${preview5.map(r=>`<tr>${becaImpHeaders.map((_,i)=>`<td>${r[i]??''}</td>`).join('')}</tr>`).join('')}</tbody>`;
-}
-
-// Convierte un valor de porcentaje aceptando "85", "85%", "0.85", 0.85 → devuelve 0-1
-function becaImpParsePct(raw){
-  if(raw===undefined||raw===null||raw==='') return 0;
-  if(typeof raw==='number') return raw>1 ? raw/100 : raw;
-  let s = String(raw).replace('%','').replace(',','.').trim();
-  let n = parseFloat(s);
-  if(isNaN(n)) return 0;
-  return n>1 ? n/100 : n;
-}
-
-// Convierte un valor monetario aceptando formato argentino ($1.234.567,89) o simple
-function becaImpParseMonto(raw){
-  if(raw===undefined||raw===null||raw==='') return 0;
-  if(typeof raw==='number') return raw;
-  const s = String(raw).replace(/[$\s]/g,'').replace(/\./g,'').replace(',','.');
-  return parseFloat(s)||0;
-}
-
-// Normaliza SI/NO desde valores variados (si, sí, x, true, 1, no, etc.)
-function becaImpParseSiNo(raw, def){
-  if(raw===undefined||raw===null||raw==='') return def;
-  const s = String(raw).trim().toLowerCase();
-  if(['si','sí','x','true','1','yes'].includes(s)) return 'SI';
-  if(['no','false','0'].includes(s)) return 'NO';
-  return def;
-}
-
-function becaImpConfirmarImport(){
-  const getMapVal = key => {
-    const el = document.getElementById('beca-map-'+key);
-    return el && el.value!=='' ? parseInt(el.value) : null;
-  };
-  const iAlumno = getMapVal('alumno');
-  const s2 = document.getElementById('beca-imp-status2');
-
-  if(iAlumno===null){
-    s2.textContent='❌ El campo "Alumno" es obligatorio para importar.';
-    s2.className='err'; s2.style.display='block'; return;
-  }
-
-  const iAnio        = getMapVal('anio');
-  const iCarrera     = getMapVal('carrera');
-  const iCiudad      = getMapVal('ciudad');
-  const iIntegrantes = getMapVal('integrantes');
-  const iIngreso     = getMapVal('ingreso');
-  const iVivienda    = getMapVal('vivienda');
-  const iTransporte  = getMapVal('transporte');
-  const iSalud       = getMapVal('salud');
-  const iPctAprobado = getMapVal('pctAprobado');
-  const iAnterior    = getMapVal('anterior');
-  const iPaga        = getMapVal('paga');
-  const iPctAplicar  = getMapVal('pctAplicar');
-  const iObs         = getMapVal('obs');
-
-  const modoDuplicado = document.getElementById('beca-imp-modo-duplicado').value; // actualizar | omitir
-  const aniosValid = ['1°','2°','3°','4°'];
-  const carrerasValid = ['Psicopedagogía','Educación Física','Inglés','Matemática','Trabajo Social','Enfermería','Escena del Crimen'];
-  const viviendaValid = ['Propia','Alquilada','Cedida'];
-  const saludValid = ['No','SI - Obra Social','SI - Prepaga','SI - Obra Social y Prepaga'];
-
-  let agregados=0, actualizados=0, omitidos=0, errores=0;
-
-  becaImpXLSXData.forEach(row => {
-    const alumno = String(row[iAlumno]||'').replace(/,/g,'').replace(/\s+/g,' ').trim();
-    if(!alumno){ errores++; return; }
-
-    let anio = iAnio!==null ? String(row[iAnio]||'').trim() : '1°';
-    if(!aniosValid.includes(anio)){
-      const n = parseInt(anio);
-      anio = (n>=1&&n<=4) ? n+'°' : '1°';
-    }
-
-    let carrera = iCarrera!==null ? String(row[iCarrera]||'').trim() : 'Psicopedagogía';
-    const carreraMatch = carrerasValid.find(c=>c.toLowerCase()===carrera.toLowerCase());
-    if(carreraMatch) carrera = carreraMatch;
-
-    let vivienda = iVivienda!==null ? String(row[iVivienda]||'').trim() : 'Propia';
-    const viviendaMatch = viviendaValid.find(v=>v.toLowerCase()===vivienda.toLowerCase());
-    vivienda = viviendaMatch || (vivienda || 'Propia');
-
-    let salud = iSalud!==null ? String(row[iSalud]||'').trim() : 'No';
-    const saludMatch = saludValid.find(v=>v.toLowerCase()===salud.toLowerCase());
-    salud = saludMatch || (salud || 'No');
-
-    const beca = {
-      alumno,
-      anio,
-      carrera,
-      ciudad: iCiudad!==null ? String(row[iCiudad]||'').trim() : '',
-      integrantes: iIntegrantes!==null ? (parseInt(row[iIntegrantes])||0) : 0,
-      ingreso: iIngreso!==null ? becaImpParseMonto(row[iIngreso]) : 0,
-      vivienda,
-      transporte: iTransporte!==null ? String(row[iTransporte]||'').trim() : '',
-      salud,
-      pctAprobado: iPctAprobado!==null ? becaImpParsePct(row[iPctAprobado]) : 0,
-      anterior: iAnterior!==null ? becaImpParseSiNo(row[iAnterior],'SI') : 'SI',
-      paga: iPaga!==null ? becaImpParseSiNo(row[iPaga],'SI') : 'SI',
-      pctAplicar: iPctAplicar!==null ? becaImpParsePct(row[iPctAplicar]) : 0,
-      obs: iObs!==null ? String(row[iObs]||'').trim() : '',
-    };
-
-    const idxExistente = BECAS_SOCIO.findIndex(b=>normalizar(b.alumno)===normalizar(alumno));
-    if(idxExistente>=0){
-      if(modoDuplicado==='omitir'){ omitidos++; return; }
-      BECAS_SOCIO[idxExistente] = beca;
-      actualizados++;
-    } else {
-      BECAS_SOCIO.push(beca);
-      agregados++;
-    }
-  });
-
-  BECAS_SOCIO.sort((a,b)=>a.alumno.toUpperCase().localeCompare(b.alumno.toUpperCase()));
-  becaSave();
-  renderBecas();
-  closeModal('modal-import-becas');
-  resetImportBecas();
-  showToast(`Importación completada · ${agregados} agregadas · ${actualizados} actualizadas${omitidos>0?' · '+omitidos+' omitidas':''}${errores>0?' · '+errores+' ignoradas':''}`);
-}
-// ── FIN Importar Becas ────────────────────────────────────────
 // ── FIN BECAS ───────────────────────────────────────────────────
 
 // ── PROVEEDORES ──────────────────────────────────────────────
@@ -8482,15 +8224,6 @@ function provToggleMostrarOcultas(){
   renderProveedores();
 }
 
-// Normaliza un N° de factura a sus partes numéricas sin ceros a la izquierda
-// (ej: "00001-00000008", "1-8" y "0001-8" quedan todos como "1-8"),
-// para que la búsqueda no dependa del formato exacto de padding/separador.
-function normalizarFactura(s){
-  const partes = (s||'').toString().split(/[^0-9]+/).filter(Boolean);
-  if(!partes.length) return '';
-  return partes.map(seg => String(parseInt(seg,10))).join('-');
-}
-
 function getProvFiltered(){
   const raw = (document.getElementById('prov-search')||{value:''}).value.trim();
   const fp  = (document.getElementById('prov-fil-pagado')||{value:''}).value;
@@ -8498,7 +8231,6 @@ function getProvFiltered(){
 
   const hayBusqueda = raw !== '';
   const qText = hayBusqueda ? normalizar(raw) : '';
-  const qFactura = hayBusqueda ? normalizarFactura(raw) : '';
   // Si el texto parece un número, comparar también con el precio
   const rawNum = raw.replace(/[.\s$]/g,'').replace(',','.');
   const esNumero = hayBusqueda && rawNum !== '' && !isNaN(rawNum);
@@ -8516,8 +8248,7 @@ function getProvFiltered(){
     // Búsqueda de texto (nombre, N° factura, observaciones, monto)
     if(hayBusqueda){
       const matchNombre  = normalizar(p.nombre||'').includes(qText);
-      const matchFactura = normalizar(p.nFactura||'').includes(qText)
-        || (qFactura !== '' && normalizarFactura(p.nFactura).includes(qFactura));
+      const matchFactura = normalizar(p.nFactura||'').includes(qText);
       const matchObs     = normalizar(p.observaciones||'').includes(qText);
       const matchMonto   = esNumero
         ? String(p.precio).includes(rawNum)
@@ -9443,6 +9174,240 @@ function tasaTotal(metodo){
   const t = tasas[metodo];
   if(!t) return 0;
   return t.base * (1+IVA);
+}
+
+// ══════════════════════════════════════════════════════════════
+// DÉBITOS — Historial de cobros por débito/CBU (import CSV banco)
+// ══════════════════════════════════════════════════════════════
+const DEB_KEY = 'iscm_debitos_v1';
+
+// Diccionario de códigos de rechazo de débito automático (estándar bancario AR)
+const DEB_MOTIVOS = {
+  'R01':'Cuenta no habilitada para débitos',
+  'R02':'Cuenta inexistente',
+  'R03':'Baja del servicio / adhesión cancelada',
+  'R04':'Cuenta cerrada o suspendida',
+  'R05':'Titular fallecido',
+  'R06':'Rechazo por orden judicial',
+  'R07':'Cuenta bloqueada',
+  'R08':'Orden de no pagar (rechazo del titular)',
+  'R09':'Firma no autorizada',
+  'R10':'Fondos insuficientes',
+  'R11':'Importe inválido',
+  'R12':'Concepto/servicio no coincide',
+  'R13':'Sucursal / entidad / destino incorrecto',
+  'R14':'Débito duplicado',
+  'R15':'Error de formato en el archivo',
+  'R16':'Cuenta en moneda distinta',
+  'R17':'Falta de fondos',
+  'R18':'CBU inválido',
+};
+function debMotivoTexto(codigo, extra){
+  const c = (codigo||'').trim().toUpperCase();
+  if(!c) return '';
+  let txt = DEB_MOTIVOS[c] || (extra ? extra.trim() : '') || 'Motivo no especificado';
+  return c + ' — ' + txt;
+}
+
+function debCargar(){
+  try{ const s = localStorage.getItem(DEB_KEY); return s ? JSON.parse(s) : []; }catch(e){ return []; }
+}
+function debGuardar(rows){
+  localStorage.setItem(DEB_KEY, JSON.stringify(rows));
+}
+
+function debInit(){
+  debRender();
+}
+
+function debAbrirImport(){
+  document.getElementById('deb-import-preview').style.display = 'none';
+  document.getElementById('deb-import-error').style.display = 'none';
+  document.getElementById('deb-btn-confirmar-import').style.display = 'none';
+  document.getElementById('deb-file-input').value = '';
+  window._debPendingRows = null;
+  document.getElementById('modal-import-deb').classList.add('open');
+}
+
+// Parsea el CSV: separador ';', codificación latin-1 (Windows-1252), primera línea = header
+function debParsearCSV(text){
+  const lineas = text.split(/\r\n|\n|\r/).filter(l => l.trim().length>0);
+  if(lineas.length < 2) throw new Error('El archivo no tiene filas de datos.');
+  const filas = lineas.slice(1).map(l => l.split(';').map(c => c.trim()));
+
+  const out = [];
+  filas.forEach(f => {
+    if(f.length < 8) return; // fila incompleta, la salteamos
+    const identificador = f[2] || '';
+    if(!identificador) return;
+    const fechaVto      = f[4] || '';
+    const referencia     = f[6] || '';
+    const importeVtoRaw  = f[8] || '';
+    const importeCobRaw  = f[9] || '';
+    const importeRecRaw  = f[10]|| '';
+    const obsCodigo       = (f[11]||'').trim();
+    const obsExtra         = (f[12]||'').trim();
+
+    const importeRechazado = parseInt(importeRecRaw, 10) || 0;
+    const importeCobrado   = parseInt(importeCobRaw, 10) || 0;
+    const importeVto       = parseInt(importeVtoRaw, 10) || 0;
+
+    const rechazado = !!obsCodigo;
+    const importe = rechazado ? (importeRechazado || importeVto) : (importeCobrado || importeVto);
+
+    out.push({
+      identificador,
+      fecha: debFormatearFecha(fechaVto),
+      fechaRaw: fechaVto,
+      referencia,
+      importe: importe/100,
+      estado: rechazado ? 'rechazado' : 'aceptado',
+      motivoCodigo: obsCodigo,
+      motivoTexto: rechazado ? debMotivoTexto(obsCodigo, obsExtra) : ''
+    });
+  });
+  return out;
+}
+function debFormatearFecha(s){
+  if(!s || s.length < 8) return s || '';
+  return `${s.slice(6,8)}/${s.slice(4,6)}/${s.slice(0,4)}`;
+}
+
+function debProcesarArchivo(input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  const errBox = document.getElementById('deb-import-error');
+  errBox.style.display = 'none';
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      // Decodificar como latin-1 / windows-1252 (tildes del banco vienen en ese charset)
+      const bytes = new Uint8Array(e.target.result);
+      const text = new TextDecoder('windows-1252').decode(bytes);
+      const rows = debParsearCSV(text);
+      if(rows.length === 0){ throw new Error('No se encontraron filas válidas en el archivo.'); }
+
+      window._debPendingRows = rows;
+      const rechazados = rows.filter(r=>r.estado==='rechazado').length;
+      document.getElementById('deb-import-preview-stats').innerHTML =
+        `<strong>${rows.length}</strong> filas encontradas — <span style="color:#c0392b">${rechazados} rechazadas</span>, <span style="color:#1a4d2e">${rows.length-rechazados} aceptadas</span>`;
+      document.getElementById('deb-import-preview').style.display = '';
+      document.getElementById('deb-btn-confirmar-import').style.display = '';
+    }catch(err){
+      errBox.textContent = 'Error al leer el archivo: ' + err.message;
+      errBox.style.display = '';
+      document.getElementById('deb-import-preview').style.display = 'none';
+      document.getElementById('deb-btn-confirmar-import').style.display = 'none';
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function debConfirmarImport(){
+  const nuevas = window._debPendingRows || [];
+  if(nuevas.length === 0) return;
+  const actuales = debCargar();
+  // Dedup por identificador + fecha + referencia
+  const clave = r => `${r.identificador}|${r.fechaRaw}|${r.referencia}`;
+  const existentes = new Set(actuales.map(clave));
+  let agregadas = 0;
+  nuevas.forEach(r => {
+    if(!existentes.has(clave(r))){
+      actuales.push(r);
+      existentes.add(clave(r));
+      agregadas++;
+    }
+  });
+  actuales.sort((a,b) => (b.fechaRaw||'').localeCompare(a.fechaRaw||''));
+  debGuardar(actuales);
+  document.getElementById('modal-import-deb').classList.remove('open');
+  showToast(`Se importaron ${agregadas} filas nuevas (${nuevas.length - agregadas} ya existían).`, 'success');
+  debRender();
+}
+
+function debBorrarTodo(){
+  if(!confirm('¿Seguro que querés vaciar todo el historial de débitos cargado? Esta acción no se puede deshacer.')) return;
+  debGuardar([]);
+  debRender();
+}
+
+function debRender(){
+  const rows = debCargar();
+
+  // Stats
+  const rechazados = rows.filter(r=>r.estado==='rechazado');
+  const aceptados = rows.filter(r=>r.estado==='aceptado');
+  const totalRechazado = rechazados.reduce((s,r)=>s+r.importe,0);
+  const statsEl = document.getElementById('deb-stats');
+  if(statsEl){
+    statsEl.innerHTML = `
+      <div class="stat"><div class="stat-label">TOTAL REGISTROS</div><div class="stat-value">${rows.length}</div></div>
+      <div class="stat"><div class="stat-label">RECHAZADOS</div><div class="stat-value danger">${rechazados.length}</div></div>
+      <div class="stat"><div class="stat-label">ACEPTADOS</div><div class="stat-value success">${aceptados.length}</div></div>
+      <div class="stat"><div class="stat-label">$ RECHAZADO</div><div class="stat-value danger">$${totalRechazado.toLocaleString('es-AR',{minimumFractionDigits:2})}</div></div>
+    `;
+  }
+
+  // Poblar filtro de motivos
+  const filMotivo = document.getElementById('deb-fil-motivo');
+  if(filMotivo){
+    const motivosPresentes = [...new Set(rechazados.map(r=>r.motivoCodigo).filter(Boolean))].sort();
+    const actual = filMotivo.value;
+    filMotivo.innerHTML = '<option value="">Todos los motivos</option>' +
+      motivosPresentes.map(m=>`<option value="${m}">${m}</option>`).join('');
+    filMotivo.value = actual;
+  }
+
+  // Filtros
+  const q = (document.getElementById('deb-search').value || '').trim().toLowerCase();
+  const filEstado = document.getElementById('deb-fil-estado').value;
+  const filMotivoVal = filMotivo ? filMotivo.value : '';
+
+  let filtradas = rows;
+  if(q) filtradas = filtradas.filter(r =>
+    r.identificador.toLowerCase().includes(q) ||
+    (r.referencia||'').toLowerCase().includes(q) ||
+    (r.motivoTexto||'').toLowerCase().includes(q)
+  );
+  if(filEstado) filtradas = filtradas.filter(r => r.estado === filEstado);
+  if(filMotivoVal) filtradas = filtradas.filter(r => r.motivoCodigo === filMotivoVal);
+
+  const tbody = document.getElementById('deb-tbody');
+  const empty = document.getElementById('deb-empty');
+  if(!tbody) return;
+
+  if(filtradas.length === 0){
+    tbody.innerHTML = '';
+    empty.style.display = '';
+    empty.textContent = rows.length===0
+      ? 'No hay datos cargados todavía. Subí un CSV del banco para empezar.'
+      : 'Ningún registro coincide con la búsqueda/filtros.';
+    return;
+  }
+  empty.style.display = 'none';
+
+  tbody.innerHTML = filtradas.map((r, idxVisible) => {
+    const idxReal = rows.indexOf(r);
+    const badge = r.estado === 'rechazado'
+      ? `<span style="background:#fdecea;color:#c0392b;border-radius:10px;padding:2px 10px;font-size:11px;font-weight:600">✗ Rechazado</span>`
+      : `<span style="background:#e8f5ee;color:#1a4d2e;border-radius:10px;padding:2px 10px;font-size:11px;font-weight:600">✓ Aceptado</span>`;
+    return `<tr>
+      <td style="font-family:monospace;font-size:12px">${r.identificador}</td>
+      <td style="font-size:12px">${r.fecha}</td>
+      <td style="font-size:12px">${r.referencia}</td>
+      <td style="text-align:right;font-size:12px">$${r.importe.toLocaleString('es-AR',{minimumFractionDigits:2})}</td>
+      <td style="text-align:center">${badge}</td>
+      <td style="font-size:12px;color:${r.estado==='rechazado'?'#c0392b':'#888'}">${r.motivoTexto || '—'}</td>
+      <td><button onclick="debEliminarFila(${idxReal})" title="Eliminar fila" style="background:none;border:none;cursor:pointer;color:#c0392b;font-size:14px"><i class="ti ti-trash"></i></button></td>
+    </tr>`;
+  }).join('');
+}
+
+function debEliminarFila(idx){
+  const rows = debCargar();
+  rows.splice(idx, 1);
+  debGuardar(rows);
+  debRender();
 }
 
 // ── INIT ──────────────────────────────────────────────────────
