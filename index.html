@@ -2010,6 +2010,12 @@ Apariente, Luciano | 1003-1004 | V"></textarea>
   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
     <input type="text" id="deb-search" placeholder="Buscar por identificador, referencia u observación..." oninput="debRender()"
       style="flex:1;min-width:240px;height:34px;padding:0 12px;border-radius:6px;border:1px solid #d0d0c8;font-size:13px">
+    <select id="deb-fil-periodo-mes" onchange="debRender()" style="height:34px;border-radius:6px;border:1px solid #d0d0c8;font-size:13px">
+      <option value="">Todos los meses</option>
+    </select>
+    <select id="deb-fil-periodo-dia" onchange="debRender()" style="height:34px;border-radius:6px;border:1px solid #d0d0c8;font-size:13px">
+      <option value="">Todos los días</option>
+    </select>
     <select id="deb-fil-estado" onchange="debRender()" style="height:34px;border-radius:6px;border:1px solid #d0d0c8;font-size:13px">
       <option value="">Todos los estados</option>
       <option value="rechazado">✗ Rechazados</option>
@@ -2025,6 +2031,7 @@ Apariente, Luciano | 1003-1004 | V"></textarea>
     <table style="width:100%;min-width:900px">
       <thead>
         <tr>
+          <th style="width:120px">Período</th>
           <th style="width:110px">Identificador</th>
           <th style="width:90px">Fecha Vto.</th>
           <th>Referencia</th>
@@ -2048,6 +2055,29 @@ Apariente, Luciano | 1003-1004 | V"></textarea>
     <h2><i class="ti ti-file-import"></i> Subir Reporte de Cobros (CSV)</h2>
     <div class="info-box" style="margin-bottom:12px">
       Subí el CSV que exporta el banco (separado por <strong>;</strong>). Se toma el <strong>identificador</strong>, la <strong>referencia</strong>, el <strong>importe</strong> y las <strong>observaciones</strong> de rechazo. Las filas ya cargadas (mismo identificador + fecha) <strong>no se duplican</strong>.
+    </div>
+    <div style="display:flex;gap:10px;margin-bottom:12px">
+      <div style="flex:1">
+        <label style="font-size:12px;font-weight:600;color:#666;display:block;margin-bottom:4px">Mes del débito *</label>
+        <input type="month" id="deb-import-mes" style="width:100%;height:34px;padding:0 10px;border-radius:6px;border:1px solid #d0d0c8;font-size:13px">
+      </div>
+      <div style="flex:1">
+        <label style="font-size:12px;font-weight:600;color:#666;display:block;margin-bottom:4px">Día del débito *</label>
+        <select id="deb-import-dia" style="width:100%;height:34px;border-radius:6px;border:1px solid #d0d0c8;font-size:13px">
+          <option value="">Elegir día...</option>
+          <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+          <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+          <option value="7">7</option><option value="8">8</option><option value="9">9</option>
+          <option value="10">10</option><option value="11">11</option><option value="12">12</option>
+          <option value="13">13</option><option value="14">14</option><option value="15">15</option>
+          <option value="16">16</option><option value="17">17</option><option value="18">18</option>
+          <option value="19">19</option><option value="20">20</option><option value="21">21</option>
+          <option value="22">22</option><option value="23">23</option><option value="24">24</option>
+          <option value="25">25</option><option value="26">26</option><option value="27">27</option>
+          <option value="28">28</option><option value="29">29</option><option value="30">30</option>
+          <option value="31">31</option>
+        </select>
+      </div>
     </div>
     <div style="background:#f8f8f4;border:2px dashed #d0d0c8;border-radius:8px;padding:20px;text-align:center;cursor:pointer;margin-bottom:12px" onclick="document.getElementById('deb-file-input').click()">
       <div style="font-size:28px;margin-bottom:8px">📄</div>
@@ -9225,6 +9255,8 @@ function debAbrirImport(){
   document.getElementById('deb-import-error').style.display = 'none';
   document.getElementById('deb-btn-confirmar-import').style.display = 'none';
   document.getElementById('deb-file-input').value = '';
+  document.getElementById('deb-import-mes').value = '';
+  document.getElementById('deb-import-dia').value = '';
   window._debPendingRows = null;
   document.getElementById('modal-import-deb').classList.add('open');
 }
@@ -9306,9 +9338,25 @@ function debProcesarArchivo(input){
 function debConfirmarImport(){
   const nuevas = window._debPendingRows || [];
   if(nuevas.length === 0) return;
+
+  const errBox = document.getElementById('deb-import-error');
+  const mes = document.getElementById('deb-import-mes').value;
+  const dia = document.getElementById('deb-import-dia').value;
+  if(!mes || !dia){
+    errBox.textContent = 'Elegí el mes y el día del débito antes de importar.';
+    errBox.style.display = '';
+    return;
+  }
+  errBox.style.display = 'none';
+
+  nuevas.forEach(r => {
+    r.periodoMes = mes;           // 'YYYY-MM'
+    r.periodoDia = parseInt(dia, 10);
+  });
+
   const actuales = debCargar();
-  // Dedup por identificador + fecha + referencia
-  const clave = r => `${r.identificador}|${r.fechaRaw}|${r.referencia}`;
+  // Dedup por identificador + fecha + referencia + período (mismo movimiento, mismo período)
+  const clave = r => `${r.identificador}|${r.fechaRaw}|${r.referencia}|${r.periodoMes}|${r.periodoDia}`;
   const existentes = new Set(actuales.map(clave));
   let agregadas = 0;
   nuevas.forEach(r => {
@@ -9318,7 +9366,12 @@ function debConfirmarImport(){
       agregadas++;
     }
   });
-  actuales.sort((a,b) => (b.fechaRaw||'').localeCompare(a.fechaRaw||''));
+  actuales.sort((a,b) => {
+    const pa = `${a.periodoMes||''}-${String(a.periodoDia||0).padStart(2,'0')}`;
+    const pb = `${b.periodoMes||''}-${String(b.periodoDia||0).padStart(2,'0')}`;
+    if(pa !== pb) return pb.localeCompare(pa);
+    return (b.fechaRaw||'').localeCompare(a.fechaRaw||'');
+  });
   debGuardar(actuales);
   document.getElementById('modal-import-deb').classList.remove('open');
   showToast(`Se importaron ${agregadas} filas nuevas (${nuevas.length - agregadas} ya existían).`, 'success');
@@ -9348,6 +9401,27 @@ function debRender(){
     `;
   }
 
+  // Poblar filtro de meses (período)
+  const filMes = document.getElementById('deb-fil-periodo-mes');
+  if(filMes){
+    const mesesPresentes = [...new Set(rows.map(r=>r.periodoMes).filter(Boolean))].sort().reverse();
+    const actualMes = filMes.value;
+    filMes.innerHTML = '<option value="">Todos los meses</option>' +
+      mesesPresentes.map(m=>`<option value="${m}">${nombreMes(m)}</option>`).join('');
+    filMes.value = actualMes;
+  }
+  // Poblar filtro de días (según el mes elegido, si hay uno)
+  const filDia = document.getElementById('deb-fil-periodo-dia');
+  if(filDia){
+    const mesSel = filMes ? filMes.value : '';
+    const base = mesSel ? rows.filter(r=>r.periodoMes===mesSel) : rows;
+    const diasPresentes = [...new Set(base.map(r=>r.periodoDia).filter(Boolean))].sort((a,b)=>a-b);
+    const actualDia = filDia.value;
+    filDia.innerHTML = '<option value="">Todos los días</option>' +
+      diasPresentes.map(d=>`<option value="${d}">Día ${d}</option>`).join('');
+    filDia.value = actualDia;
+  }
+
   // Poblar filtro de motivos
   const filMotivo = document.getElementById('deb-fil-motivo');
   if(filMotivo){
@@ -9362,6 +9436,8 @@ function debRender(){
   const q = (document.getElementById('deb-search').value || '').trim().toLowerCase();
   const filEstado = document.getElementById('deb-fil-estado').value;
   const filMotivoVal = filMotivo ? filMotivo.value : '';
+  const filMesVal = filMes ? filMes.value : '';
+  const filDiaVal = filDia ? filDia.value : '';
 
   let filtradas = rows;
   if(q) filtradas = filtradas.filter(r =>
@@ -9371,6 +9447,8 @@ function debRender(){
   );
   if(filEstado) filtradas = filtradas.filter(r => r.estado === filEstado);
   if(filMotivoVal) filtradas = filtradas.filter(r => r.motivoCodigo === filMotivoVal);
+  if(filMesVal) filtradas = filtradas.filter(r => r.periodoMes === filMesVal);
+  if(filDiaVal) filtradas = filtradas.filter(r => String(r.periodoDia) === filDiaVal);
 
   const tbody = document.getElementById('deb-tbody');
   const empty = document.getElementById('deb-empty');
@@ -9391,7 +9469,11 @@ function debRender(){
     const badge = r.estado === 'rechazado'
       ? `<span style="background:#fdecea;color:#c0392b;border-radius:10px;padding:2px 10px;font-size:11px;font-weight:600">✗ Rechazado</span>`
       : `<span style="background:#e8f5ee;color:#1a4d2e;border-radius:10px;padding:2px 10px;font-size:11px;font-weight:600">✓ Aceptado</span>`;
+    const periodoLabel = r.periodoMes
+      ? `${nombreMes(r.periodoMes).replace(/^(\w{3})\w*/, '$1')} · Día ${r.periodoDia}`
+      : '—';
     return `<tr>
+      <td style="font-size:12px;color:#555">${periodoLabel}</td>
       <td style="font-family:monospace;font-size:12px">${r.identificador}</td>
       <td style="font-size:12px">${r.fecha}</td>
       <td style="font-size:12px">${r.referencia}</td>
