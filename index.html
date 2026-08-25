@@ -1161,32 +1161,7 @@ img, svg{max-width:100%}
 
       <!-- Referencia de tasas -->
       <div style="font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.05em;margin:2px 0 10px">Tasas aplicadas</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:16px;font-size:13px">
-        <div style="background:#f8f8f4;border:1px solid #eee;border-radius:8px;padding:12px 14px">
-          <div style="font-weight:700;margin-bottom:6px;color:#1a1a2e;font-size:14px">QR Factura</div>
-          <code style="color:#555;font-size:12px">Comisión = Bruto × 0.80% × 1.21</code><br>
-          <code style="color:#555;font-size:12px">Neto = Bruto × (1 − 0.968%)</code>
-          <div style="color:#2980b9;margin-top:8px;font-size:15px;font-weight:700">0.97%</div>
-        </div>
-        <div style="background:#f8f8f4;border:1px solid #eee;border-radius:8px;padding:12px 14px">
-          <div style="font-weight:700;margin-bottom:6px;color:#1a1a2e;font-size:14px">Link de Pago</div>
-          <code style="color:#555;font-size:12px">Comisión = Bruto × 1.00% × 1.21</code><br>
-          <code style="color:#555;font-size:12px">Neto = Bruto × (1 − 1.21%)</code>
-          <div style="color:#2980b9;margin-top:8px;font-size:15px;font-weight:700">1.21%</div>
-        </div>
-        <div style="background:#f8f8f4;border:1px solid #eee;border-radius:8px;padding:12px 14px">
-          <div style="font-weight:700;margin-bottom:6px;color:#1a1a2e;font-size:14px">Boca de Pago</div>
-          <code style="color:#555;font-size:12px">Comisión = Bruto × 3.00% × 1.21</code><br>
-          <code style="color:#555;font-size:12px">Neto = Bruto × (1 − 3.63%)</code>
-          <div style="color:#2980b9;margin-top:8px;font-size:15px;font-weight:700">3.63%</div>
-        </div>
-        <div style="background:#f8f8f4;border:1px solid #eee;border-radius:8px;padding:12px 14px">
-          <div style="font-weight:700;margin-bottom:6px;color:#1a1a2e;font-size:14px">Pago Mis Cuentas</div>
-          <code style="color:#555;font-size:12px">Comisión = Bruto × 1.50% × 1.21</code><br>
-          <code style="color:#555;font-size:12px">Neto = Bruto × (1 − 1.815%)</code>
-          <div style="color:#2980b9;margin-top:8px;font-size:15px;font-weight:700">1.815%</div>
-        </div>
-      </div>
+      <div id="fact-tasas-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:16px;font-size:13px"></div>
       <div style="margin-bottom:18px;padding:10px 14px;background:#fffde7;border:1px solid #f9edb0;border-radius:8px;font-size:13px;color:#555">
         <strong>Fórmula general:</strong> <code>Neto = Bruto × (1 − Comisión × (1 + IVA 21%))</code>
       </div>
@@ -1205,10 +1180,6 @@ img, svg{max-width:100%}
             <select id="calc-metodo" onchange="calcRapido()"
               style="width:100%;height:38px;padding:0 12px;border-radius:7px;border:1px solid #d0d0c8;font-size:14px">
               <option value="">— Elegir —</option>
-              <option value="QR">QR</option>
-              <option value="Link de Pago">Link de Pago</option>
-              <option value="Boca de Pago">Boca de Pago</option>
-              <option value="Pago Mis Cuentas">Pago Mis Cuentas</option>
             </select>
           </div>
           <div>
@@ -3607,7 +3578,7 @@ function switchTab(tab, el){
     previewAranceles();
     renderArancelHistorial();
   }
-  if(tab==='cobranza') renderCobranza();
+  if(tab==='cobranza'){ renderCobranza(); renderTasasFacturacion(); }
   if(tab==='caja') renderCaja();
   if(tab==='acuerdos') renderAcuerdos();
   if(tab==='becas') renderBecas();
@@ -9043,9 +9014,10 @@ const IVA        = 0.21;
 
 // Tasas base (sin IVA). Total = tasa × (1+IVA)
 const TASAS_DEFAULT = {
-  'QR':           { base: 0.0080, label: 'QR Factura'          },
-  'Link de Pago': { base: 0.0100, label: 'Link de Pago'        },
-  'Boca de Pago': { base: 0.0300, label: 'Boca de Pago / Trad.'}
+  'QR':               { base: 0.0080, label: 'QR Factura'          },
+  'Link de Pago':     { base: 0.0100, label: 'Link de Pago'        },
+  'Boca de Pago':     { base: 0.0300, label: 'Boca de Pago / Trad.'},
+  'Pago Mis Cuentas': { base: 0.0150, label: 'Pago Mis Cuentas'    }
 };
 
 // Días de acreditación por método
@@ -9161,6 +9133,8 @@ function concCargar(){
   // Limpiar tasas viejas (Link Crédito/Débito) si quedaron guardadas en localStorage
   delete tasas['Link Crédito']; delete tasas['Link Débito'];
   if(!tasas['Link de Pago']) tasas['Link de Pago'] = { ...TASAS_DEFAULT['Link de Pago'] };
+  if(!tasas['Pago Mis Cuentas']) tasas['Pago Mis Cuentas'] = { ...TASAS_DEFAULT['Pago Mis Cuentas'] };
+  renderTasasFacturacion();
   // Sincronizar con Firebase
   (async ()=>{
     await new Promise(r=>{ if(window._fbReady)return r(); window.addEventListener('fbReady',r,{once:true}); setTimeout(r,3000); });
@@ -9172,12 +9146,16 @@ function concCargar(){
       tasas=remoteTasas;
       delete tasas['Link Crédito']; delete tasas['Link Débito'];
       if(!tasas['Link de Pago']) tasas['Link de Pago'] = { ...TASAS_DEFAULT['Link de Pago'] };
+      if(!tasas['Pago Mis Cuentas']) tasas['Pago Mis Cuentas'] = { ...TASAS_DEFAULT['Pago Mis Cuentas'] };
+      renderTasasFacturacion();
     }
     window._fb.listen(CONC_KEY, data=>{ concData=data; concMigrarMetodosLegacy(concData); concRender(); dashRefrescarSiVisible(); });
     window._fb.listen(TASAS_KEY, data=>{
       tasas=data;
       delete tasas['Link Crédito']; delete tasas['Link Débito'];
       if(!tasas['Link de Pago']) tasas['Link de Pago'] = { ...TASAS_DEFAULT['Link de Pago'] };
+      if(!tasas['Pago Mis Cuentas']) tasas['Pago Mis Cuentas'] = { ...TASAS_DEFAULT['Pago Mis Cuentas'] };
+      renderTasasFacturacion();
     });
   })();
 }
@@ -9191,6 +9169,7 @@ function concGuardarTasas(){
   if(window._fb) window._fb.set(TASAS_KEY, tasas).catch(()=>{});
   document.getElementById('modal-conc-tasas').classList.remove('open');
   concRender();
+  renderTasasFacturacion();
 }
 
 // ── CÁLCULO COMISIÓN ─────────────────────────────────────────
@@ -10004,12 +9983,34 @@ function concAbrirTasas(){
 // (panel de fórmulas ahora siempre visible en Facturación; sin toggle)
 
 // ── CALCULADORA RÁPIDA ────────────────────────────────────────
-const TASAS_CALC = {
-  'QR':               { base: 0.0080, label: 'QR Factura'        },
-  'Link de Pago':     { base: 0.0100, label: 'Link de Pago'      },
-  'Boca de Pago':     { base: 0.0300, label: 'Boca de Pago'      },
-  'Pago Mis Cuentas': { base: 0.0150, label: 'Pago Mis Cuentas'  }
-};
+// Usa el objeto `tasas` (editable desde Conciliación → "Ver/editar tasas de comisión"),
+// así que si se cambian los porcentajes ahí, se reflejan acá automáticamente.
+
+// Pinta el panel "Tasas aplicadas" y repuebla el <select> de la calculadora en Facturación
+function renderTasasFacturacion(){
+  const grid = document.getElementById('fact-tasas-grid');
+  if(!grid) return; // la pestaña Facturación todavía no se renderizó
+  concAsegurarCargado(); // por si tasas no se cargó aún (usa localStorage/Firebase de Conciliación)
+
+  grid.innerHTML = Object.entries(tasas).map(([k,v])=>{
+    const baseP = (v.base*100).toFixed(2);
+    const totalP = (v.base*(1+IVA)*100).toFixed(2);
+    return `<div style="background:#f8f8f4;border:1px solid #eee;border-radius:8px;padding:12px 14px">
+      <div style="font-weight:700;margin-bottom:6px;color:#1a1a2e;font-size:14px">${v.label}</div>
+      <code style="color:#555;font-size:12px">Comisión = Bruto × ${baseP}% × 1.21</code><br>
+      <code style="color:#555;font-size:12px">Neto = Bruto × (1 − ${totalP}%)</code>
+      <div style="color:#2980b9;margin-top:8px;font-size:15px;font-weight:700">${totalP}%</div>
+    </div>`;
+  }).join('');
+
+  const sel = document.getElementById('calc-metodo');
+  if(sel){
+    const actual = sel.value;
+    sel.innerHTML = '<option value="">— Elegir —</option>' +
+      Object.entries(tasas).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join('');
+    if([...sel.options].some(o=>o.value===actual)) sel.value = actual;
+  }
+}
 
 function calcRapido(){
   const bruto   = parseFloat(document.getElementById('calc-bruto').value)||0;
@@ -10019,7 +10020,7 @@ function calcRapido(){
 
   if(!bruto || (!metodo && manual===null)){ res.style.display='none'; document.getElementById('calc-tabla-escenarios').innerHTML='<div style="font-size:12px;color:#aaa;padding:8px 0">Ingresá un método para ver la tabla.</div>'; return; }
 
-  const tasaBase = manual!==null ? manual/100 : (TASAS_CALC[metodo]?.base || 0);
+  const tasaBase = manual!==null ? manual/100 : (tasas[metodo]?.base || 0);
   const tasaConIVA = tasaBase * (1 + IVA);
   const comision = bruto * tasaConIVA;
   const neto     = bruto - comision;
@@ -10035,7 +10036,7 @@ function calcRapido(){
 
   // Tabla de escenarios
   if(metodo){
-    const base = TASAS_CALC[metodo]?.base || tasaBase;
+    const base = tasas[metodo]?.base || tasaBase;
     const escenarios = [50000,100000,150000,200000,300000,500000,1000000,2000000,5000000];
     let html = `<table style="width:100%;font-size:12px;border-collapse:collapse">
       <thead><tr style="background:#f8f8f4">
