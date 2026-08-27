@@ -63,6 +63,10 @@ body{font-family:system-ui,sans-serif;font-size:14px;background:#f5f5f0;color:#1
 .deb-group-body{overflow-x:auto}
 tr.deb-row-rechazado td{background:rgba(192,57,43,0.035)}
 tr.deb-row-rechazado:hover td{background:rgba(192,57,43,0.07)}
+.deb-badge{display:inline-flex;align-items:center;gap:4px;white-space:nowrap;border-radius:20px;padding:4px 10px 4px 8px;font-size:11px;font-weight:600;line-height:1}
+.deb-badge i{font-size:13px}
+.deb-badge.rechazado{background:#fdecea;color:#c0392b}
+.deb-badge.aceptado{background:#e8f5ee;color:#1a4d2e}
 .global-hscroll{position:fixed;left:0;bottom:0;height:14px;overflow-x:scroll;overflow-y:hidden;z-index:9500;display:none;background:#f5f5f0;border-top:1px solid #e0e0d8}
 .global-hscroll.visible{display:block}
 .global-hscroll-inner{height:1px}
@@ -9500,8 +9504,8 @@ function debRender(){
     const filas = grupoRows.map(r => {
       const idxReal = rows.indexOf(r);
       const badge = r.estado === 'rechazado'
-        ? `<span style="background:#fdecea;color:#c0392b;border-radius:10px;padding:2px 10px;font-size:11px;font-weight:600">✗ Rechazado</span>`
-        : `<span style="background:#e8f5ee;color:#1a4d2e;border-radius:10px;padding:2px 10px;font-size:11px;font-weight:600">✓ Aceptado</span>`;
+        ? `<span class="deb-badge rechazado"><i class="ti ti-x"></i>Rechazado</span>`
+        : `<span class="deb-badge aceptado"><i class="ti ti-circle-check"></i>Aceptado</span>`;
       const diaLabel = r.periodoDia ? `Día ${r.periodoDia}` : '—';
       return `<tr class="${r.estado==='rechazado' ? 'deb-row-rechazado' : ''}">
         <td style="font-size:12px;color:#555;white-space:nowrap">${diaLabel}</td>
