@@ -61,6 +61,17 @@ body{font-family:system-ui,sans-serif;font-size:14px;background:#f5f5f0;color:#1
 .deb-chip.success{background:#e8f5ee;color:#1a4d2e}
 .deb-group-body table{width:100%;min-width:820px}
 .deb-group-body{overflow-x:auto}
+.deb-subgroup{border-top:1px solid #f0f0e8}
+.deb-subgroup:first-child{border-top:none}
+.deb-subgroup-header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 14px 8px 32px;cursor:pointer;user-select:none;flex-wrap:wrap;background:#fff}
+.deb-subgroup-header:hover{background:#fafaf7}
+.deb-subgroup.open .deb-subgroup-header{border-bottom:1px solid #f0f0e8}
+.deb-subgroup-title{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#333;white-space:nowrap}
+.deb-subgroup .deb-caret{font-size:11px}
+.deb-subgroup-stats{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.deb-chip.sm{font-size:10px;padding:2px 7px}
+.deb-subgroup-body table{width:100%;min-width:760px}
+.deb-subgroup-body td:first-child{padding-left:32px}
 tr.deb-row-rechazado td{background:rgba(192,57,43,0.035)}
 tr.deb-row-rechazado:hover td{background:rgba(192,57,43,0.07)}
 .deb-badge{display:inline-flex;align-items:center;gap:4px;white-space:nowrap;border-radius:20px;padding:4px 10px 4px 8px;font-size:11px;font-weight:600;line-height:1}
@@ -9234,9 +9245,35 @@ function debCargar(){
 }
 function debGuardar(rows){
   localStorage.setItem(DEB_KEY, JSON.stringify(rows));
+  if(window._fb) window._fb.set(DEB_KEY, rows).catch(()=>{});
+}
+
+// Sincronización con Firebase: al entrar a la pestaña por primera vez en esta
+// sesión, trae lo último guardado desde otra PC y se queda escuchando en vivo
+// cualquier cambio posterior (import, borrado, vaciado) hecho desde otro lado.
+let _debFbSyncIniciado = false;
+function debSincronizarFirebase(){
+  if(_debFbSyncIniciado) return;
+  _debFbSyncIniciado = true;
+  (async ()=>{
+    await new Promise(r=>{ if(window._fbReady) return r(); window.addEventListener('fbReady', r, {once:true}); setTimeout(r, 3000); });
+    if(!window._fb) return;
+    try{
+      const remote = await window._fb.get(DEB_KEY);
+      if(remote){
+        localStorage.setItem(DEB_KEY, JSON.stringify(remote));
+        debRender();
+      }
+    }catch(e){ console.warn('debitos firebase (carga inicial):', e); }
+    window._fb.listen(DEB_KEY, data=>{
+      localStorage.setItem(DEB_KEY, JSON.stringify(data || []));
+      debRender();
+    });
+  })();
 }
 
 function debInit(){
+  debSincronizarFirebase();
   debRender();
 }
 
@@ -9375,6 +9412,7 @@ function debBorrarTodo(){
 }
 
 function debClaveGrupo(r){ return r.periodoMes || '__sin_periodo__'; }
+function debClaveDia(r){ return debClaveGrupo(r) + '|' + (r.periodoDia!=null ? String(r.periodoDia) : '__sin_dia__'); }
 function debOrdenarClaves(claves){
   return claves.sort((a,b)=>{
     if(a==='__sin_periodo__') return 1;
@@ -9387,10 +9425,17 @@ function debToggleMonth(clave){
   else window._debOpenMonths.add(clave);
   debRender();
 }
+function debToggleDay(claveDia){
+  if(!window._debOpenDays) window._debOpenDays = new Set();
+  if(window._debOpenDays.has(claveDia)) window._debOpenDays.delete(claveDia);
+  else window._debOpenDays.add(claveDia);
+  debRender();
+}
 function debToggleAll(abrir){
   const rows = debCargar();
   const claves = debOrdenarClaves([...new Set(rows.map(debClaveGrupo))]);
   window._debOpenMonths = abrir ? new Set(claves) : new Set();
+  window._debOpenDays = abrir ? new Set(rows.map(debClaveDia)) : new Set();
   debRender();
 }
 
@@ -9403,6 +9448,7 @@ function debRender(){
     const claves = debOrdenarClaves([...new Set(rows.map(debClaveGrupo))]);
     if(claves.length) window._debOpenMonths.add(claves[0]);
   }
+  if(!window._debOpenDays) window._debOpenDays = new Set();
 
   // Stats
   const rechazados = rows.filter(r=>r.estado==='rechazado');
@@ -9501,22 +9547,70 @@ function debRender(){
     const abierto = filtrosActivos || window._debOpenMonths.has(clave);
     const monthLabel = clave==='__sin_periodo__' ? 'Sin período' : nombreMes(clave);
 
-    const filas = grupoRows.map(r => {
-      const idxReal = rows.indexOf(r);
-      const badge = r.estado === 'rechazado'
-        ? `<span class="deb-badge rechazado"><i class="ti ti-x"></i>Rechazado</span>`
-        : `<span class="deb-badge aceptado"><i class="ti ti-circle-check"></i>Aceptado</span>`;
-      const diaLabel = r.periodoDia ? `Día ${r.periodoDia}` : '—';
-      return `<tr class="${r.estado==='rechazado' ? 'deb-row-rechazado' : ''}">
-        <td style="font-size:12px;color:#555;white-space:nowrap">${diaLabel}</td>
-        <td style="font-family:monospace;font-size:12px">${r.identificador}</td>
-        <td style="font-size:12px">${r.fecha}</td>
-        <td style="font-size:12px">${r.referencia}</td>
-        <td style="text-align:right;font-size:12px">$${r.importe.toLocaleString('es-AR',{minimumFractionDigits:2})}</td>
-        <td style="text-align:center">${badge}</td>
-        <td style="font-size:12px;color:${r.estado==='rechazado'?'#c0392b':'#888'}">${r.motivoTexto || '—'}</td>
-        <td><button onclick="debEliminarFila(${idxReal})" title="Eliminar fila" style="background:none;border:none;cursor:pointer;color:#c0392b;font-size:14px"><i class="ti ti-trash"></i></button></td>
-      </tr>`;
+    // Sub-agrupar por día dentro del mes
+    const dias = {};
+    grupoRows.forEach(r=>{
+      const diaKey = r.periodoDia!=null ? String(r.periodoDia) : '__sin_dia__';
+      (dias[diaKey] = dias[diaKey] || []).push(r);
+    });
+    const diasOrdenados = Object.keys(dias).sort((a,b)=>{
+      if(a==='__sin_dia__') return 1;
+      if(b==='__sin_dia__') return -1;
+      return Number(a)-Number(b);
+    });
+
+    const subgrupos = diasOrdenados.map(diaKey => {
+      const diaRows = dias[diaKey];
+      const rechDia = diaRows.filter(r=>r.estado==='rechazado');
+      const acepDia = diaRows.filter(r=>r.estado==='aceptado');
+      const totalRechDia = rechDia.reduce((s,r)=>s+r.importe,0);
+      const claveDia = clave + '|' + diaKey;
+      const diaAbierto = filtrosActivos || window._debOpenDays.has(claveDia);
+      const diaLabel = diaKey==='__sin_dia__' ? 'Sin día' : `Día ${diaKey}`;
+
+      const filas = diaRows.map(r => {
+        const idxReal = rows.indexOf(r);
+        const badge = r.estado === 'rechazado'
+          ? `<span class="deb-badge rechazado"><i class="ti ti-x"></i>Rechazado</span>`
+          : `<span class="deb-badge aceptado"><i class="ti ti-circle-check"></i>Aceptado</span>`;
+        return `<tr class="${r.estado==='rechazado' ? 'deb-row-rechazado' : ''}">
+          <td style="font-family:monospace;font-size:12px">${r.identificador}</td>
+          <td style="font-size:12px">${r.fecha}</td>
+          <td style="font-size:12px">${r.referencia}</td>
+          <td style="text-align:right;font-size:12px">$${r.importe.toLocaleString('es-AR',{minimumFractionDigits:2})}</td>
+          <td style="text-align:center">${badge}</td>
+          <td style="font-size:12px;color:${r.estado==='rechazado'?'#c0392b':'#888'}">${r.motivoTexto || '—'}</td>
+          <td><button onclick="debEliminarFila(${idxReal})" title="Eliminar fila" style="background:none;border:none;cursor:pointer;color:#c0392b;font-size:14px"><i class="ti ti-trash"></i></button></td>
+        </tr>`;
+      }).join('');
+
+      return `<div class="deb-subgroup ${diaAbierto ? 'open' : ''}">
+        <div class="deb-subgroup-header" onclick="debToggleDay('${claveDia}')">
+          <div class="deb-subgroup-title"><i class="ti ti-chevron-right deb-caret"></i>${diaLabel}</div>
+          <div class="deb-subgroup-stats">
+            <span class="deb-chip sm">${diaRows.length} reg.</span>
+            <span class="deb-chip sm danger">${rechDia.length} rech.</span>
+            <span class="deb-chip sm success">${acepDia.length} acept.</span>
+            <span class="deb-chip sm danger">$${totalRechDia.toLocaleString('es-AR',{minimumFractionDigits:2})}</span>
+          </div>
+        </div>
+        <div class="deb-subgroup-body" style="display:${diaAbierto ? '' : 'none'}">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:110px">Identificador</th>
+                <th style="width:90px">Fecha Vto.</th>
+                <th>Referencia</th>
+                <th style="text-align:right;width:110px">Importe</th>
+                <th style="width:90px;text-align:center">Estado</th>
+                <th>Motivo</th>
+                <th style="width:36px"></th>
+              </tr>
+            </thead>
+            <tbody>${filas}</tbody>
+          </table>
+        </div>
+      </div>`;
     }).join('');
 
     return `<div class="deb-group ${abierto ? 'open' : ''}">
@@ -9530,21 +9624,7 @@ function debRender(){
         </div>
       </div>
       <div class="deb-group-body" style="display:${abierto ? '' : 'none'}">
-        <table>
-          <thead>
-            <tr>
-              <th style="width:80px">Día</th>
-              <th style="width:110px">Identificador</th>
-              <th style="width:90px">Fecha Vto.</th>
-              <th>Referencia</th>
-              <th style="text-align:right;width:110px">Importe</th>
-              <th style="width:90px;text-align:center">Estado</th>
-              <th>Motivo</th>
-              <th style="width:36px"></th>
-            </tr>
-          </thead>
-          <tbody>${filas}</tbody>
-        </table>
+        ${subgrupos}
       </div>
     </div>`;
   }).join('');
