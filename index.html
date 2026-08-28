@@ -3275,16 +3275,6 @@ async function load(){
     window._fb.listen(STORAGE_KEY, data => {
       alumnos = data;
       alumnos.forEach(a => { recalcDeuda(a); });
-      // Re-aplicar SEED_INACTIVOS para que las deudas correctas no se pierdan
-      SEED_INACTIVOS.forEach(seed => {
-        const existente = alumnos.find(a => nombreKey(a.nombre) === nombreKey(seed.nombre));
-        if(existente && existente.estado === 'Baja') {
-          if(seed.deuda > 0) existente.deuda = seed.deuda;
-          if(seed.cuotasAdeudadas > 0) existente.cuotasAdeudadas = seed.cuotasAdeudadas;
-          if(!existente.carrera && seed.carrera) existente.carrera = seed.carrera;
-          if(!existente.anio && seed.anio) existente.anio = seed.anio;
-        }
-      });
       limpiarObservacionesFalta();
       sortAlumnos();
       buildCarreraFilter();
