@@ -957,6 +957,7 @@ img, svg{max-width:100%}
       <button class="btn primary" onclick="openImportInactivosModal()"><i class="ti ti-file-import"></i>Importar Excel</button>
       <button class="btn warn" onclick="inacBulkEliminarFiltrados()" title="Eliminar todos los inactivos actualmente visibles según filtros"><i class="ti ti-trash"></i>Eliminar filtrados</button>
       <button class="btn" onclick="exportarInactivosXLSX()" title="Exportar inactivos para hoja Deuda todos alumnos" style="background:#e8f5ee;border-color:#a8d5b8;color:#1a4d2e"><i class="ti ti-file-spreadsheet"></i>Exportar Excel</button>
+      <button class="btn" onclick="detectarInactivosDuplicados()" title="Buscar alumnos inactivos cargados más de una vez (por nombre similar)" style="background:#fff4e5;border-color:#f0c98c;color:#8a5a00"><i class="ti ti-copy"></i>Detectar duplicados</button>
     </div>
 
     <!-- Bulk action bar para inactivos -->
@@ -1036,6 +1037,19 @@ img, svg{max-width:100%}
         <button class="btn" onclick="closeModal('modal-import-inac');resetImportInac()">Cancelar</button>
         <button class="btn" id="inac-btn-volver" style="display:none" onclick="inacVolverUpload()">‹ Volver</button>
         <button class="btn primary" id="inac-btn-importar" style="display:none" onclick="inacConfirmarImport()"><i class="ti ti-circle-check"></i>Importar alumnos</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL DUPLICADOS INACTIVOS -->
+  <div class="overlay" id="modal-dup-inac">
+    <div class="modal" style="max-width:640px">
+      <h2><i class="ti ti-copy"></i>Alumnos inactivos duplicados</h2>
+      <p style="font-size:12px;color:#666;margin:6px 0 12px">Se agrupan por nombre (ignorando mayúsculas, acentos, comas y espacios). Elegí qué registro conservar en cada grupo; el resto se elimina de forma permanente.</p>
+      <div id="dup-inac-list" style="max-height:60vh;overflow-y:auto"></div>
+      <div class="modal-actions">
+        <button class="btn" onclick="closeModal('modal-dup-inac')">Cerrar</button>
+        <button class="btn danger" onclick="eliminarInacDuplicadosSeleccionados()"><i class="ti ti-trash"></i>Eliminar seleccionados</button>
       </div>
     </div>
   </div>
@@ -3227,11 +3241,10 @@ async function load(){
     recalcDeuda(a);
   });
   // Fusionar inactivos del Excel con los datos de Firebase
-  const nombresExistentes = new Set(alumnos.map(a=>a.nombre.trim().toLowerCase()));
   let agregados = 0;
   SEED_INACTIVOS.forEach(seed=>{
-    const key = seed.nombre.trim().toLowerCase();
-    const existente = alumnos.find(a=>a.nombre.trim().toLowerCase()===key);
+    const key = nombreKey(seed.nombre);
+    const existente = alumnos.find(a=>nombreKey(a.nombre)===key);
     if(existente){
       // Actualizar solo si sigue siendo Baja
       if(existente.estado==='Baja'){
@@ -3264,7 +3277,7 @@ async function load(){
       alumnos.forEach(a => { recalcDeuda(a); });
       // Re-aplicar SEED_INACTIVOS para que las deudas correctas no se pierdan
       SEED_INACTIVOS.forEach(seed => {
-        const existente = alumnos.find(a => a.nombre.trim().toLowerCase() === seed.nombre.trim().toLowerCase());
+        const existente = alumnos.find(a => nombreKey(a.nombre) === nombreKey(seed.nombre));
         if(existente && existente.estado === 'Baja') {
           if(seed.deuda > 0) existente.deuda = seed.deuda;
           if(seed.cuotasAdeudadas > 0) existente.cuotasAdeudadas = seed.cuotasAdeudadas;
@@ -3395,8 +3408,8 @@ function renderAlumnosActual(){
   if(tabActual==='becas') renderBecas();
 }
 
-// Helper: contar solo inactivos "reales" (los del Excel importado, con carrera asignada)
-function getInactivosReales(){ return alumnos.filter(a=>a.estado==='Baja' && a.carrera && a.carrera!==''); }
+// Helper: todos los alumnos inactivos (dados de baja), tengan o no carrera asignada
+function getInactivosReales(){ return alumnos.filter(a=>a.estado==='Baja'); }
 
 function renderStats(){
   const activos = alumnos.filter(a=>a.estado!=='Baja');
@@ -4384,7 +4397,16 @@ function pagosProcesarArchivo(file){
 function normalizar(s){
   return (s||'').toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
-    .replace(/[^a-z0-9 ]/g,'').trim();
+    .replace(/[^a-z0-9 ]/g,'').replace(/\s+/g,' ').trim();
+}
+
+// Clave canónica para comparar/desduplicar nombres de alumnos: ignora comas,
+// mayúsculas, acentos y espacios múltiples/extra (p.ej. "Pérez, Juan" === "PEREZ Juan").
+function nombreKey(s){
+  return (s||'').toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^a-z0-9\s]/g,' ')
+    .replace(/\s+/g,' ').trim();
 }
 
 function buscarAlumnoPorCBU(cbu){
@@ -4801,7 +4823,6 @@ function getInactivosFiltrados(){
   const anioOrden = {'1°':1,'2°':2,'3°':3,'4°':4};
   const lista = alumnos.filter(a=>{
     if(a.estado!=='Baja') return false;
-    if(!a.carrera || a.carrera==='') return false;  // excluir SEED sin carrera
     if(q && !normalizar(a.nombre).includes(normalizar(q))) return false;
     if(car && a.carrera!==car) return false;
     if(anio && a.anio!==anio) return false;
@@ -4936,8 +4957,8 @@ function renderInactivos(){
     return `<tr style="${isChecked?'background:#fff0f0':''}" id="inac-row-${a.id}">
       <td style="text-align:center"><input type="checkbox" class="inac-row-chk" data-id="${a.id}" ${isChecked?'checked':''} onchange="inacToggleRow(${a.id},this.checked)"></td>
       <td style="font-weight:500">${a.nombre}</td>
-      <td style="color:#555">${a.carrera}</td>
-      <td style="color:#555">${a.anio}</td>
+      <td style="color:${a.carrera?'#555':'#c0392b'}">${a.carrera||'Sin asignar'}</td>
+      <td style="color:#555">${a.anio||'—'}</td>
       <td class="${a.deuda>0?'monto-deuda':'monto-ok'}">${a.deuda>0?fmt(a.deuda):'—'}</td>
       <td style="max-width:220px">${tagsHtml}</td>
       <td style="color:#888;font-size:12px">${a.fechaBaja||'—'}</td>
@@ -4951,6 +4972,57 @@ function renderInactivos(){
     </tr>`;
   }).join('');
   inacUpdateBulkBar();
+}
+
+// ── Detección de inactivos duplicados (mismo alumno cargado más de una vez) ───
+let dupInacGrupos = [];
+
+function detectarInactivosDuplicados(){
+  const grupos = {};
+  alumnos.filter(a=>a.estado==='Baja').forEach(a=>{
+    const key = nombreKey(a.nombre);
+    if(!key) return;
+    (grupos[key] = grupos[key] || []).push(a);
+  });
+  dupInacGrupos = Object.values(grupos).filter(g=>g.length>1);
+
+  const cont = document.getElementById('dup-inac-list');
+  if(dupInacGrupos.length===0){
+    cont.innerHTML = `<p style="color:#27ae60;padding:12px 0">✅ No se encontraron alumnos inactivos duplicados.</p>`;
+  } else {
+    cont.innerHTML = dupInacGrupos.map((g,gi)=>`
+      <div style="border:1px solid #e8e8e0;border-radius:8px;padding:10px 12px;margin-bottom:10px">
+        <div style="font-weight:600;margin-bottom:6px">${g[0].nombre} <span style="font-weight:400;color:#888;font-size:12px">(${g.length} registros)</span></div>
+        ${g.map((a,ai)=>`
+          <label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;cursor:pointer">
+            <input type="radio" name="dup-keep-${gi}" value="${ai}" ${ai===0?'checked':''} onchange="dupInacMarcarConservar(${gi},${ai})">
+            <span>Conservar: <b>${a.nombre}</b> — Carrera: ${a.carrera||'Sin asignar'} · Deuda: ${fmt(a.deuda||0)} · Cuotas: ${a.cuotasAdeudadas||0} · Obs: ${a.observaciones||'—'}</span>
+          </label>
+        `).join('')}
+      </div>
+    `).join('');
+  }
+  document.getElementById('modal-dup-inac').classList.add('open');
+}
+
+function dupInacMarcarConservar(){ /* el estado se lee directamente del DOM al confirmar */ }
+
+function eliminarInacDuplicadosSeleccionados(){
+  if(dupInacGrupos.length===0){ closeModal('modal-dup-inac'); return; }
+  let aEliminar = [];
+  dupInacGrupos.forEach((g,gi)=>{
+    const radio = document.querySelector(`input[name="dup-keep-${gi}"]:checked`);
+    const keepIdx = radio ? parseInt(radio.value) : 0;
+    g.forEach((a,ai)=>{ if(ai!==keepIdx) aEliminar.push(a.id); });
+  });
+  if(aEliminar.length===0) return;
+  if(!confirm(`Se eliminarán ${aEliminar.length} registro(s) duplicado(s) de forma permanente. ¿Continuar?`)) return;
+  alumnos = alumnos.filter(a=>!aEliminar.includes(a.id));
+  save();
+  buildCarreraFilter(); buildInactivosCarreraFilter();
+  renderStats(); renderInactivosStats(); renderAlumnosActual(); renderInactivos();
+  closeModal('modal-dup-inac');
+  showToast(`✅ Se eliminaron ${aEliminar.length} duplicado(s)`);
 }
 
 function changeInactivosPage(d){ inacPage+=d; renderInactivos(); }
@@ -5137,7 +5209,7 @@ function inacConfirmarImport(){
     const nombre = String(row[iNombre]||'').trim();
     if(!nombre){ errores++; return; }
 
-    const existe = alumnos.some(a=>a.nombre.toLowerCase()===nombre.toLowerCase());
+    const existe = alumnos.some(a=>nombreKey(a.nombre)===nombreKey(nombre));
     if(existe){ saltados++; return; }
 
     let carrera = iCarrera!==null ? String(row[iCarrera]||'').trim() : 'Psicopedagogía';
