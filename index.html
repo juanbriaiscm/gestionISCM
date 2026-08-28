@@ -1045,7 +1045,7 @@ img, svg{max-width:100%}
   <div class="overlay" id="modal-dup-inac">
     <div class="modal" style="max-width:640px">
       <h2><i class="ti ti-copy"></i>Alumnos inactivos duplicados</h2>
-      <p style="font-size:12px;color:#666;margin:6px 0 12px">Se agrupan por nombre (ignorando mayúsculas, acentos, comas y espacios). Elegí qué registro conservar en cada grupo; el resto se elimina de forma permanente.</p>
+      <p style="font-size:12px;color:#666;margin:6px 0 12px">Se agrupan por nombre (ignorando mayúsculas, acentos, comas y espacios). Tocá el círculo del registro que querés <b>conservar</b> en cada grupo — el/los otro(s), marcado(s) en rojo como "Se elimina", se borrarán de forma permanente al confirmar.</p>
       <div id="dup-inac-list" style="max-height:60vh;overflow-y:auto"></div>
       <div class="modal-actions">
         <button class="btn" onclick="closeModal('modal-dup-inac')">Cerrar</button>
@@ -4222,9 +4222,22 @@ function exportarDeudaXLSX(){
 // ── Exportar inactivos a Excel (hoja "Deuda todos alumnos") ──────────────
 function exportarInactivosXLSX(){
   function doExport(){
-    const inactivos = alumnos
+    const todos = alumnos
       .filter(a => a.estado === 'Baja')
       .sort((a,b) => a.nombre.localeCompare(b.nombre,'es',{sensitivity:'base'}));
+
+    // Red de seguridad: si por algún motivo quedaron duplicados cargados en la
+    // base (mismo alumno con distinto formato de nombre), no exportarlos dos
+    // veces. Nos quedamos con el registro que tenga más deuda/cuotas cargadas.
+    const vistos = new Map();
+    todos.forEach(a=>{
+      const key = nombreKey(a.nombre);
+      if(!key){ return; }
+      const prev = vistos.get(key);
+      if(!prev || (a.deuda||0) > (prev.deuda||0)) vistos.set(key, a);
+    });
+    const inactivos = [...vistos.values()].sort((a,b) => a.nombre.localeCompare(b.nombre,'es',{sensitivity:'base'}));
+    const duplicadosOmitidos = todos.length - inactivos.length;
 
     const headers = ['Alumno','Cuotas adeudadas','Observaciones','Monto de la deuda'];
 
@@ -4249,7 +4262,11 @@ function exportarInactivosXLSX(){
     XLSX.utils.book_append_sheet(wb, ws, 'Deuda todos alumnos');
     const fecha = new Date().toLocaleDateString('es-AR').replace(/\//g,'-');
     XLSX.writeFile(wb, `Inactivos_deuda_ISCM_${fecha}.xlsx`);
-    showToast(`✅ Excel exportado con ${inactivos.length} inactivos`);
+    if(duplicadosOmitidos>0){
+      showToast(`✅ Excel exportado con ${inactivos.length} inactivos · ⚠️ se omitieron ${duplicadosOmitidos} duplicado(s). Usá "Detectar duplicados" para limpiarlos.`);
+    } else {
+      showToast(`✅ Excel exportado con ${inactivos.length} inactivos`);
+    }
   }
 
   if(typeof XLSX === 'undefined'){
@@ -4994,9 +5011,12 @@ function detectarInactivosDuplicados(){
       <div style="border:1px solid #e8e8e0;border-radius:8px;padding:10px 12px;margin-bottom:10px">
         <div style="font-weight:600;margin-bottom:6px">${g[0].nombre} <span style="font-weight:400;color:#888;font-size:12px">(${g.length} registros)</span></div>
         ${g.map((a,ai)=>`
-          <label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;cursor:pointer">
-            <input type="radio" name="dup-keep-${gi}" value="${ai}" ${ai===0?'checked':''} onchange="dupInacMarcarConservar(${gi},${ai})">
-            <span>Conservar: <b>${a.nombre}</b> — Carrera: ${a.carrera||'Sin asignar'} · Deuda: ${fmt(a.deuda||0)} · Cuotas: ${a.cuotasAdeudadas||0} · Obs: ${a.observaciones||'—'}</span>
+          <label id="dup-opt-${gi}-${ai}" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer;background:${ai===0?'#eafaf1':'#fdecea'}">
+            <input type="radio" name="dup-keep-${gi}" value="${ai}" ${ai===0?'checked':''} onchange="dupInacMarcarConservar(${gi})">
+            <span style="flex:1">
+              <span id="dup-tag-${gi}-${ai}" style="font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:${ai===0?'#1a4d2e':'#a93226'}">${ai===0?'✅ Se conserva':'🗑️ Se elimina'}</span><br>
+              <b>${a.nombre}</b> — Carrera: ${a.carrera||'Sin asignar'} · Deuda: ${fmt(a.deuda||0)} · Cuotas: ${a.cuotasAdeudadas||0} · Obs: ${a.observaciones||'—'}
+            </span>
           </label>
         `).join('')}
       </div>
@@ -5005,7 +5025,21 @@ function detectarInactivosDuplicados(){
   document.getElementById('modal-dup-inac').classList.add('open');
 }
 
-function dupInacMarcarConservar(){ /* el estado se lee directamente del DOM al confirmar */ }
+function dupInacMarcarConservar(gi){
+  const g = dupInacGrupos[gi];
+  if(!g) return;
+  const radio = document.querySelector(`input[name="dup-keep-${gi}"]:checked`);
+  const keepIdx = radio ? parseInt(radio.value) : 0;
+  g.forEach((a,ai)=>{
+    const label = document.getElementById(`dup-opt-${gi}-${ai}`);
+    const tag = document.getElementById(`dup-tag-${gi}-${ai}`);
+    if(!label || !tag) return;
+    const conserva = ai===keepIdx;
+    label.style.background = conserva ? '#eafaf1' : '#fdecea';
+    tag.style.color = conserva ? '#1a4d2e' : '#a93226';
+    tag.textContent = conserva ? '✅ Se conserva' : '🗑️ Se elimina';
+  });
+}
 
 function eliminarInacDuplicadosSeleccionados(){
   if(dupInacGrupos.length===0){ closeModal('modal-dup-inac'); return; }
