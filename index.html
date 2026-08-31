@@ -1700,8 +1700,20 @@ img, svg{max-width:100%}
 <div id="tab-proveedores" style="display:none">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
     <h2 style="margin:0;font-size:17px;color:#1a1a2e"><i class="ti ti-building"></i>Gestión de Proveedores</h2>
-    <button onclick="openNuevoProveedor()" style="background:#1a1a2e;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-size:13px;cursor:pointer;font-weight:600"><i class="ti ti-plus"></i>Agregar factura</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <div class="tab-group" style="position:relative;display:inline-block" onmouseenter="ddShow('dd-prov-impexp')" onmouseleave="ddHide('dd-prov-impexp')">
+        <button class="btn" title="Importar o exportar proveedores"><i class="ti ti-file-import"></i>Importar/Exportar ▾</button>
+        <div class="tab-dropdown" id="dd-prov-impexp">
+          <button class="dd-item" onclick="provAbrirImport();ddHide('dd-prov-impexp')" title="Importar la hoja Proveedores del Excel de Tesorería ISCM"><i class="ti ti-file-import"></i>Importar desde Excel (Tesorería)</button>
+          <button class="dd-item" onclick="provExportarExcel();ddHide('dd-prov-impexp')"><i class="ti ti-file-spreadsheet"></i>Exportar Excel</button>
+          <button class="dd-item" onclick="provExportarJSON();ddHide('dd-prov-impexp')"><i class="ti ti-braces"></i>Exportar JSON</button>
+          <button class="dd-item" onclick="provExportarCSV();ddHide('dd-prov-impexp')"><i class="ti ti-file-type-csv"></i>Exportar CSV</button>
+        </div>
+      </div>
+      <button onclick="openNuevoProveedor()" style="background:#1a1a2e;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-size:13px;cursor:pointer;font-weight:600"><i class="ti ti-plus"></i>Agregar factura</button>
+    </div>
   </div>
+  <input type="file" id="prov-import-input" accept=".xlsx,.xls" style="display:none" onchange="provProcesarImport(this)">
   <!-- Stats Proveedores -->
   <div class="stats-row" id="prov-stats-row" style="margin-bottom:14px"></div>
   <!-- Filtros -->
@@ -2573,11 +2585,79 @@ Apariente, Luciano | 1003-1004 | V"></textarea>
         </select>
       </div>
       <div class="field"><label>Fecha de pago</label><input type="date" id="prov-fec-pago"></div>
+      <div class="field" style="grid-column:1/-1"><label><i class="ti ti-link"></i>Link Google Drive del comprobante de pago</label><input id="prov-link-comprobante" placeholder="https://drive.google.com/file/d/..." style="font-size:12px"></div>
       <div class="field" style="grid-column:1/-1"><label>Observaciones</label><input id="prov-obs" placeholder="Ej: Periodo 05/2026"></div>
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal('modal-prov')">Cancelar</button>
       <button class="btn primary" onclick="guardarProveedor()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: importar proveedores desde Excel -->
+<div class="overlay" id="modal-import-prov">
+  <div class="modal" style="max-width:720px">
+    <h2><i class="ti ti-file-import"></i> Importar proveedores desde Excel</h2>
+    <div class="info-box" style="margin-bottom:12px">
+      Importa la hoja <strong>"Proveedores"</strong> del Excel de Tesorería ISCM, incluyendo los links de Google Drive adjuntos al N° de factura y al ¿Le pagamos?.
+    </div>
+    <div id="prov-import-drop" style="background:#f8f8f4;border:2px dashed #d0d0c8;border-radius:8px;padding:20px;text-align:center;cursor:pointer;margin-bottom:12px" onclick="document.getElementById('prov-import-input').click()">
+      <div style="font-size:28px;margin-bottom:8px">📊</div>
+      <div style="font-size:13px;font-weight:600;color:#1a1a2e">Hacer clic para elegir el archivo .xlsx</div>
+      <div style="font-size:11px;color:#888;margin-top:4px">Se detectan automáticamente los encabezados y los links a Drive</div>
+    </div>
+
+    <div id="prov-import-error" style="display:none;background:#f8d7da;border:1px solid #f5c6cb;border-radius:6px;padding:10px 14px;font-size:12px;color:#721c24;margin-bottom:10px"></div>
+
+    <div id="prov-import-preview" style="display:none">
+      <div id="prov-import-stats" style="font-size:13px;margin-bottom:10px"></div>
+
+      <div id="prov-import-conflictos-wrap" style="display:none;margin-bottom:14px">
+        <div style="font-size:12px;font-weight:600;color:#666;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">
+          Facturas que ya existen — ¿qué hacemos?
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+          <button class="btn sm" onclick="provAplicarAccionGlobal('actualizar')"><i class="ti ti-refresh"></i>Actualizar todas</button>
+          <button class="btn sm" onclick="provAplicarAccionGlobal('omitir')"><i class="ti ti-x"></i>Omitir todas</button>
+          <button class="btn sm" onclick="provAplicarAccionGlobal('nuevo')"><i class="ti ti-copy"></i>Importar todas como nuevas</button>
+        </div>
+        <div style="max-height:260px;overflow-y:auto;border:1px solid #e8e8e0;border-radius:6px">
+          <table style="width:100%;font-size:11px;border-collapse:collapse">
+            <thead>
+              <tr style="background:#f8f8f4">
+                <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #e8e8e0">Proveedor</th>
+                <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #e8e8e0">N° Factura</th>
+                <th style="padding:6px 8px;text-align:right;border-bottom:1px solid #e8e8e0">Monto (excel)</th>
+                <th style="padding:6px 8px;text-align:right;border-bottom:1px solid #e8e8e0">Monto (actual)</th>
+                <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #e8e8e0">Acción</th>
+              </tr>
+            </thead>
+            <tbody id="prov-import-conflictos-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style="font-size:12px;font-weight:600;color:#666;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Vista previa — filas nuevas</div>
+      <div style="max-height:200px;overflow-y:auto;border:1px solid #e8e8e0;border-radius:6px">
+        <table style="width:100%;font-size:11px;border-collapse:collapse">
+          <thead>
+            <tr style="background:#f8f8f4">
+              <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #e8e8e0">Proveedor</th>
+              <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #e8e8e0">N° Factura</th>
+              <th style="padding:6px 8px;text-align:right;border-bottom:1px solid #e8e8e0">Monto</th>
+              <th style="padding:6px 8px;text-align:center;border-bottom:1px solid #e8e8e0">Pagado</th>
+              <th style="padding:6px 8px;text-align:center;border-bottom:1px solid #e8e8e0">Links</th>
+            </tr>
+          </thead>
+          <tbody id="prov-import-nuevas-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn" onclick="document.getElementById('modal-import-prov').classList.remove('open')">Cancelar</button>
+      <button class="btn primary" id="prov-btn-confirmar-import" style="display:none" onclick="provConfirmarImport()"><i class="ti ti-check"></i>Importar datos</button>
     </div>
   </div>
 </div>
@@ -8437,7 +8517,7 @@ function renderProveedores(){
       <td class="factura-cell${p.linkFactura?' has-link':''}" style="font-size:12px" onmouseenter="showFacturaPopup(event,${p.id})" onmouseleave="startHidePopup()" onclick="${p.linkFactura?`abrirFacturaLink(${p.id})`:''}">
         ${p.nFactura||'—'}${p.linkFactura?' 📎':''}</td>
       <td style="font-size:12px">${fmtFecha(p.fechaVencimiento)}</td>
-      <td>${pagBadge}</td>
+      <td>${pagBadge}${p.linkComprobante?` <a href="${p.linkComprobante}" target="_blank" rel="noopener" title="Ver comprobante de pago" style="text-decoration:none">📎</a>`:''}</td>
       <td style="font-size:12px">${fmtFecha(p.fechaPago)}</td>
       <td style="font-size:12px;color:#666">${p.observaciones||'—'}</td>
       <td style="white-space:nowrap">
@@ -8596,6 +8676,7 @@ function openNuevoProveedor(){
   document.getElementById('prov-fec-venc').value = '';
   document.getElementById('prov-pagado').value = 'NO';
   document.getElementById('prov-fec-pago').value = '';
+  document.getElementById('prov-link-comprobante').value = '';
   document.getElementById('prov-obs').value = '';
   document.getElementById('prov-suggest-list').style.display = 'none';
   document.getElementById('modal-prov').classList.add('open');
@@ -8614,6 +8695,7 @@ function openEditProv(id){
   document.getElementById('prov-fec-venc').value = p.fechaVencimiento||'';
   document.getElementById('prov-pagado').value = p.pagado;
   document.getElementById('prov-fec-pago').value = p.fechaPago||'';
+  document.getElementById('prov-link-comprobante').value = p.linkComprobante||'';
   document.getElementById('prov-obs').value = p.observaciones||'';
   document.getElementById('modal-prov').classList.add('open');
 }
@@ -8622,6 +8704,7 @@ function guardarProveedor(){
   const nombre = document.getElementById('prov-nombre').value.trim();
   if(!nombre){ alert('El nombre del proveedor es obligatorio.'); return; }
   const precio = parseFloat(document.getElementById('prov-precio').value)||0;
+  const original = editingProvId !== null ? proveedores.find(p=>p.id===editingProvId) : null;
   const entry = {
     id: editingProvId !== null ? editingProvId : (proveedores.length ? Math.max(...proveedores.map(p=>p.id))+1 : 1),
     nombre,
@@ -8632,7 +8715,9 @@ function guardarProveedor(){
     fechaVencimiento: document.getElementById('prov-fec-venc').value,
     pagado: document.getElementById('prov-pagado').value,
     fechaPago: document.getElementById('prov-fec-pago').value,
+    linkComprobante: document.getElementById('prov-link-comprobante').value.trim(),
     observaciones: document.getElementById('prov-obs').value.trim(),
+    origen: original ? (original.origen||'') : '',
   };
   if(editingProvId !== null){
     const idx = proveedores.findIndex(p=>p.id===editingProvId);
@@ -8717,6 +8802,367 @@ function hideFacturaPopup() {
   popup.classList.remove('visible');
   document.getElementById('fp-body').innerHTML = '';
   document.getElementById('fp-abrir-btn').style.display = 'none';
+}
+
+// ── Importar Proveedores desde Excel ────────────────────────────
+let provImportPendingNuevas = [];      // filas sin coincidencia, listas para agregar
+let provImportPendingConflictos = [];  // {excel, existente, accion}
+
+// Clave para detectar si una fila del Excel ya existe: nombre + N° factura;
+// si no hay N° de factura, usa nombre + fecha de vencimiento + monto.
+function provClaveMatch(nombre, nFactura, fechaVenc, precio){
+  const n = normalizar(nombre||'');
+  const nf = normalizar(nFactura||'');
+  if(nf && nf!=='-') return n+'|'+nf;
+  return n+'|'+(fechaVenc||'')+'|'+Math.round((precio||0)*100);
+}
+
+function provAbrirImport(){
+  provImportPendingNuevas = [];
+  provImportPendingConflictos = [];
+  document.getElementById('prov-import-preview').style.display = 'none';
+  document.getElementById('prov-import-error').style.display = 'none';
+  document.getElementById('prov-btn-confirmar-import').style.display = 'none';
+  document.getElementById('modal-import-prov').classList.add('open');
+  const inp = document.getElementById('prov-import-input');
+  inp.value = '';
+}
+
+function provMostrarImportError(msg){
+  const el = document.getElementById('prov-import-error');
+  el.textContent = msg;
+  el.style.display = 'block';
+  document.getElementById('prov-import-preview').style.display = 'none';
+  document.getElementById('prov-btn-confirmar-import').style.display = 'none';
+}
+
+function provProcesarImport(input){
+  const file = input.files[0];
+  if(!file) return;
+  document.getElementById('modal-import-prov').classList.add('open');
+  document.getElementById('prov-import-error').style.display = 'none';
+  document.getElementById('prov-import-preview').style.display = 'none';
+  document.getElementById('prov-btn-confirmar-import').style.display = 'none';
+
+  function leer(){
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const wb = XLSX.read(e.target.result, {type:'array', cellDates:true});
+        const nombreHoja = wb.SheetNames.find(n => normalizar(n).includes('proveedor')) || wb.SheetNames[0];
+        const ws = wb.Sheets[nombreHoja];
+        provParsearHoja(ws);
+      } catch(err){
+        provMostrarImportError('Error al leer el archivo: ' + err.message);
+      }
+    };
+    reader.onerror = () => provMostrarImportError('No se pudo leer el archivo.');
+    reader.readAsArrayBuffer(file);
+  }
+
+  if(typeof XLSX === 'undefined'){
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload = leer;
+    s.onerror = () => provMostrarImportError('No se pudo cargar la librería para leer .xlsx.');
+    document.head.appendChild(s);
+  } else {
+    leer();
+  }
+}
+
+function provFechaAISO(v){
+  if(v===null||v===undefined||v==='') return '';
+  if(v instanceof Date && !isNaN(v)){
+    const y=v.getFullYear(), m=String(v.getMonth()+1).padStart(2,'0'), d=String(v.getDate()).padStart(2,'0');
+    return `${y}-${m}-${d}`;
+  }
+  return normalizarFecha(v);
+}
+
+// Lee la hoja de Excel celda por celda (en vez de sheet_to_json) para poder
+// capturar los hipervínculos (links de Drive) adjuntos a cada celda.
+function provParsearHoja(ws){
+  if(!ws || !ws['!ref']){ provMostrarImportError('La hoja del Excel está vacía.'); return; }
+  const range = XLSX.utils.decode_range(ws['!ref']);
+
+  let headerRow = -1;
+  const colIdx = { origen:-1, nombre:-1, precio:-1, factEnv:-1, nFact:-1, fVenc:-1, pagado:-1, fPago:-1, obs:-1 };
+
+  for(let r = range.s.r; r <= Math.min(range.s.r+10, range.e.r); r++){
+    const textos = [];
+    for(let c = range.s.c; c <= range.e.c; c++){
+      const cell = ws[XLSX.utils.encode_cell({r,c})];
+      textos.push(normalizar(cell ? String(cell.v||'') : ''));
+    }
+    const idxNombre = textos.findIndex(t=>t.includes('nombre del proveedor'));
+    if(idxNombre >= 0){
+      headerRow = r;
+      colIdx.origen  = range.s.c;
+      colIdx.nombre  = idxNombre + range.s.c;
+      colIdx.precio  = textos.findIndex(t=>t.includes('precio')) >=0 ? textos.findIndex(t=>t.includes('precio'))+range.s.c : -1;
+      colIdx.factEnv = textos.findIndex(t=>t.includes('enviaron factura')) >=0 ? textos.findIndex(t=>t.includes('enviaron factura'))+range.s.c : -1;
+      colIdx.nFact   = textos.findIndex(t=>t.includes('n de factura')) >=0 ? textos.findIndex(t=>t.includes('n de factura'))+range.s.c : -1;
+      colIdx.fVenc   = textos.findIndex(t=>t.includes('vencimiento')) >=0 ? textos.findIndex(t=>t.includes('vencimiento'))+range.s.c : -1;
+      colIdx.pagado  = textos.findIndex(t=>t.includes('pagamos')) >=0 ? textos.findIndex(t=>t.includes('pagamos'))+range.s.c : -1;
+      colIdx.fPago   = textos.findIndex(t=>t.includes('fecha de pago')) >=0 ? textos.findIndex(t=>t.includes('fecha de pago'))+range.s.c : -1;
+      colIdx.obs     = textos.findIndex(t=>t.includes('observaciones')) >=0 ? textos.findIndex(t=>t.includes('observaciones'))+range.s.c : -1;
+      break;
+    }
+  }
+
+  if(headerRow < 0){
+    provMostrarImportError('No se encontró la fila de encabezados ("Nombre del proveedor"). Asegurate de usar la hoja "Proveedores" del Excel de Tesorería ISCM.');
+    return;
+  }
+
+  const getCell = (r,c) => (c==null||c<0) ? null : ws[XLSX.utils.encode_cell({r,c})];
+  const parsed = [];
+
+  for(let r = headerRow+1; r <= range.e.r; r++){
+    const cNombre = getCell(r, colIdx.nombre);
+    const nombre = cNombre ? String(cNombre.v||'').trim() : '';
+    if(!nombre) continue;
+
+    const cOrigen = getCell(r, colIdx.origen);
+    const origen = cOrigen ? String(cOrigen.v||'').trim() : '';
+
+    const cPrecio = getCell(r, colIdx.precio);
+    const precio = cPrecio ? (parsearNum(cPrecio.v) || 0) : 0;
+
+    const cFactEnv = getCell(r, colIdx.factEnv);
+    const facturaEnviadaRaw = cFactEnv ? String(cFactEnv.v||'').trim().toUpperCase() : 'SI';
+
+    const cNFact = getCell(r, colIdx.nFact);
+    let nFactura = cNFact ? String(cNFact.v||'').trim() : '';
+    if(nFactura === '-') nFactura = '';
+    const linkFactura = (cNFact && cNFact.l && cNFact.l.Target) ? cNFact.l.Target : '';
+
+    const cFVenc = getCell(r, colIdx.fVenc);
+    const fechaVencimiento = cFVenc ? provFechaAISO(cFVenc.v) : '';
+
+    const cPagado = getCell(r, colIdx.pagado);
+    const pagadoRaw = cPagado ? String(cPagado.v||'').trim().toUpperCase() : 'NO';
+    const linkComprobante = (cPagado && cPagado.l && cPagado.l.Target) ? cPagado.l.Target : '';
+
+    const cFPago = getCell(r, colIdx.fPago);
+    const fechaPago = cFPago ? provFechaAISO(cFPago.v) : '';
+
+    const cObs = getCell(r, colIdx.obs);
+    let observaciones = cObs ? String(cObs.v||'').trim() : '';
+    if(observaciones === '-') observaciones = '';
+
+    parsed.push({
+      origen, nombre, precio,
+      facturaEnviada: facturaEnviadaRaw==='NO' ? 'NO' : 'SI',
+      nFactura, linkFactura,
+      fechaVencimiento,
+      pagado: pagadoRaw==='SI' ? 'SI' : 'NO',
+      linkComprobante,
+      fechaPago,
+      observaciones
+    });
+  }
+
+  if(!parsed.length){
+    provMostrarImportError('No se encontraron filas con datos para importar.');
+    return;
+  }
+
+  provClasificarImport(parsed);
+}
+
+function provClasificarImport(parsed){
+  provImportPendingNuevas = [];
+  provImportPendingConflictos = [];
+
+  const indice = new Map();
+  proveedores.forEach(p=>{
+    const k = provClaveMatch(p.nombre, p.nFactura, p.fechaVencimiento, p.precio);
+    if(!indice.has(k)) indice.set(k, p);
+  });
+
+  parsed.forEach(row=>{
+    const k = provClaveMatch(row.nombre, row.nFactura, row.fechaVencimiento, row.precio);
+    const existente = indice.get(k);
+    if(existente){
+      provImportPendingConflictos.push({ excel: row, existente, accion: 'omitir' });
+    } else {
+      provImportPendingNuevas.push(row);
+    }
+  });
+
+  provRenderPreviewImport();
+}
+
+function provRenderPreviewImport(){
+  document.getElementById('prov-import-preview').style.display = 'block';
+  document.getElementById('prov-btn-confirmar-import').style.display = 'inline-flex';
+
+  const totalNuevas = provImportPendingNuevas.length;
+  const totalConf = provImportPendingConflictos.length;
+  document.getElementById('prov-import-stats').innerHTML =
+    `📄 <strong>${totalNuevas + totalConf}</strong> filas leídas del Excel · ` +
+    `<span style="color:#1a7a3c">${totalNuevas} nuevas</span> · ` +
+    `<span style="color:${totalConf>0?'#c0392b':'#888'}">${totalConf} ya existen</span>`;
+
+  const wrap = document.getElementById('prov-import-conflictos-wrap');
+  const tbodyC = document.getElementById('prov-import-conflictos-tbody');
+  if(totalConf>0){
+    wrap.style.display = 'block';
+    tbodyC.innerHTML = provImportPendingConflictos.map((c,i)=>`
+      <tr>
+        <td style="padding:5px 8px;border-bottom:1px solid #f0f0ea">${c.excel.nombre}</td>
+        <td style="padding:5px 8px;border-bottom:1px solid #f0f0ea">${c.excel.nFactura||'—'}</td>
+        <td style="padding:5px 8px;text-align:right;border-bottom:1px solid #f0f0ea">${provFmt(c.excel.precio)}</td>
+        <td style="padding:5px 8px;text-align:right;border-bottom:1px solid #f0f0ea;color:#888">${provFmt(c.existente.precio)}</td>
+        <td style="padding:5px 8px;border-bottom:1px solid #f0f0ea">
+          <select onchange="provSetAccionFila(${i},this.value)" style="font-size:11px;padding:2px 4px">
+            <option value="omitir" ${c.accion==='omitir'?'selected':''}>Omitir</option>
+            <option value="actualizar" ${c.accion==='actualizar'?'selected':''}>Actualizar existente</option>
+            <option value="nuevo" ${c.accion==='nuevo'?'selected':''}>Importar como nueva</option>
+          </select>
+        </td>
+      </tr>`).join('');
+  } else {
+    wrap.style.display = 'none';
+  }
+
+  const tbodyN = document.getElementById('prov-import-nuevas-tbody');
+  tbodyN.innerHTML = provImportPendingNuevas.slice(0,300).map(r=>{
+    const links = (r.linkFactura?'📎Factura ':'') + (r.linkComprobante?'📎Comprobante':'');
+    return `<tr>
+      <td style="padding:5px 8px;border-bottom:1px solid #f0f0ea">${r.nombre}</td>
+      <td style="padding:5px 8px;border-bottom:1px solid #f0f0ea">${r.nFactura||'—'}</td>
+      <td style="padding:5px 8px;text-align:right;border-bottom:1px solid #f0f0ea">${provFmt(r.precio)}</td>
+      <td style="padding:5px 8px;text-align:center;border-bottom:1px solid #f0f0ea">${r.pagado==='SI'?'✓':'—'}</td>
+      <td style="padding:5px 8px;text-align:center;border-bottom:1px solid #f0f0ea;font-size:10px">${links||'—'}</td>
+    </tr>`;
+  }).join('');
+}
+
+function provSetAccionFila(i, accion){
+  if(provImportPendingConflictos[i]) provImportPendingConflictos[i].accion = accion;
+}
+
+function provAplicarAccionGlobal(accion){
+  provImportPendingConflictos.forEach(c=>c.accion=accion);
+  provRenderPreviewImport();
+}
+
+function provConfirmarImport(){
+  let nuevos=0, actualizados=0, omitidos=0;
+  let nextId = proveedores.length ? Math.max(...proveedores.map(p=>p.id))+1 : 1;
+
+  provImportPendingNuevas.forEach(row=>{
+    proveedores.push({ id: nextId++, ...row });
+    nuevos++;
+  });
+
+  provImportPendingConflictos.forEach(c=>{
+    if(c.accion === 'actualizar'){
+      const idx = proveedores.findIndex(p=>p.id===c.existente.id);
+      if(idx>=0) proveedores[idx] = { ...proveedores[idx], ...c.excel, id: proveedores[idx].id };
+      actualizados++;
+    } else if(c.accion === 'nuevo'){
+      proveedores.push({ id: nextId++, ...c.excel });
+      nuevos++;
+    } else {
+      omitidos++;
+    }
+  });
+
+  saveProv();
+  renderProveedores();
+  document.getElementById('modal-import-prov').classList.remove('open');
+  showToast(`✅ Importación completa · ${nuevos} nuevas, ${actualizados} actualizadas, ${omitidos} omitidas`);
+}
+
+// ── Exportar Proveedores ─────────────────────────────────────────
+const PROV_EXPORT_HEADERS = ['Origen','Nombre del proveedor','Precio del servicio','¿Enviaron factura?','N° de factura','Fecha de vencimiento factura','¿Le pagamos?','Fecha de pago','Observaciones'];
+
+function provFechaDDMMYYYY(iso){
+  if(!iso) return '';
+  const partes = iso.split('-');
+  if(partes.length!==3) return iso;
+  const [y,m,d] = partes;
+  return `${d}/${m}/${y}`;
+}
+
+function provExportarExcel(){
+  function doExport(){
+    if(!proveedores.length){ showToast('No hay proveedores para exportar','error'); return; }
+    const wb = XLSX.utils.book_new();
+    const wsData = [PROV_EXPORT_HEADERS, ...proveedores.map(p=>[
+      p.origen||'', p.nombre, p.precio||0, p.facturaEnviada||'SI',
+      p.nFactura||'', provFechaDDMMYYYY(p.fechaVencimiento), p.pagado||'NO',
+      provFechaDDMMYYYY(p.fechaPago), p.observaciones||''
+    ])];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    ws['!cols'] = [{wch:8},{wch:32},{wch:14},{wch:12},{wch:22},{wch:14},{wch:10},{wch:14},{wch:30}];
+    for(let r=1;r<=proveedores.length;r++){
+      const addr = XLSX.utils.encode_cell({r,c:2});
+      if(ws[addr]) ws[addr].z = '#,##0.00';
+    }
+    // Restaurar hipervínculos: N° factura (col 4) y ¿Le pagamos? (col 6)
+    proveedores.forEach((p,i)=>{
+      const r = i+1;
+      if(p.linkFactura){
+        const addr = XLSX.utils.encode_cell({r,c:4});
+        if(ws[addr]) ws[addr].l = {Target:p.linkFactura};
+      }
+      if(p.linkComprobante){
+        const addr = XLSX.utils.encode_cell({r,c:6});
+        if(ws[addr]) ws[addr].l = {Target:p.linkComprobante};
+      }
+    });
+    XLSX.utils.book_append_sheet(wb, ws, 'Proveedores');
+    const fecha = new Date().toLocaleDateString('es-AR').replace(/\//g,'-');
+    XLSX.writeFile(wb, `Proveedores_ISCM_${fecha}.xlsx`);
+    showToast(`✅ Excel exportado · ${proveedores.length} facturas`);
+  }
+  if(typeof XLSX === 'undefined'){
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload = doExport;
+    s.onerror = () => showToast('No se pudo cargar la librería para exportar','error');
+    document.head.appendChild(s);
+  } else {
+    doExport();
+  }
+}
+
+function provExportarJSON(){
+  if(!proveedores.length){ showToast('No hay proveedores para exportar','error'); return; }
+  const blob = new Blob([JSON.stringify(proveedores, null, 2)], {type:'application/json;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Proveedores_ISCM_${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast(`✅ JSON exportado · ${proveedores.length} facturas`);
+}
+
+function provExportarCSV(){
+  if(!proveedores.length){ showToast('No hay proveedores para exportar','error'); return; }
+  const headers = [...PROV_EXPORT_HEADERS, 'Link Factura', 'Link Comprobante de Pago'];
+  const esc = (v) => `"${String(v==null?'':v).replace(/"/g,'""')}"`;
+  const bom = '\uFEFF';
+  const rows = proveedores.map(p=>[
+    p.origen||'', p.nombre, p.precio||0, p.facturaEnviada||'SI',
+    p.nFactura||'', provFechaDDMMYYYY(p.fechaVencimiento), p.pagado||'NO',
+    provFechaDDMMYYYY(p.fechaPago), p.observaciones||'', p.linkFactura||'', p.linkComprobante||''
+  ].map(esc).join(','));
+  const csv = bom + headers.map(esc).join(',') + '\r\n' + rows.join('\r\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Proveedores_ISCM_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast(`✅ CSV exportado · ${proveedores.length} facturas`);
 }
 
 // ── FIN PROVEEDORES ───────────────────────────────────────────
