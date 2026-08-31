@@ -3274,6 +3274,7 @@ async function load(){
   if(window._fb){
     window._fb.listen(STORAGE_KEY, data => {
       alumnos = data;
+      alumnos.forEach(a => { recalcDeuda(a); });
       limpiarObservacionesFalta();
       sortAlumnos();
       buildCarreraFilter();
