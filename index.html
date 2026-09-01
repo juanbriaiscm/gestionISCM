@@ -3030,7 +3030,7 @@ Apariente, Luciano | 1003-1004 | V"></textarea>
       <div class="field"><label>Cuota mensual ($)</label><input id="ed-cuota" type="number" onblur="validarCuotaEdit()"></div>
       <div class="field"><label>Estado</label>
         <select id="ed-estado" onchange="edEstadoChange()">
-          <option>Al día</option><option>Debe</option><option>Acuerdo</option><option>Baja</option><option>Vacante</option>
+          <option>Al día</option><option>Debe</option><option>Acuerdo</option><option>Baja</option><option>Vacante</option><option>Matrícula</option>
         </select>
       </div>
     </div>
@@ -3547,6 +3547,7 @@ function renderStats(){
     secEl.innerHTML = `
       <span class="stats-secondary-caption">Otros datos</span>
       <div class="stats-secondary-item"><span class="lbl">Vacantes</span><span class="val">${activos.filter(a=>a.estado==='Vacante').length}</span></div>
+      <div class="stats-secondary-item"><span class="lbl">Matriculados</span><span class="val">${activos.filter(a=>a.estado==='Matrícula').length}</span></div>
       <div class="stats-secondary-item" style="cursor:pointer" onclick="document.querySelector('[onclick*=inactivos]').click()"><span class="lbl">Inactivos (bajas)</span><span class="val" style="color:#e67e22">${inactivos.length}</span></div>
       ${acuerdos.length>0?`<div class="stats-secondary-item"><span class="lbl">Acuerdos activos</span><span class="val" style="color:#856404">${acuerdos.length}</span></div>`:''}
     `;
@@ -5931,6 +5932,7 @@ function renderDashboard(){
   const deben   = activos.filter(a=>a.estado==='Debe');
   const alDia   = activos.filter(a=>a.estado==='Al día');
   const vacantes = activos.filter(a=>a.estado==='Vacante');
+  const matriculados = activos.filter(a=>a.estado==='Matrícula');
   const inactivos = getInactivosReales();
   const totalDeuda = activos.reduce((s,a)=>s+a.deuda,0);
   const inacDeuda  = inactivos.reduce((s,a)=>s+a.deuda,0);
@@ -6008,6 +6010,7 @@ function renderDashboard(){
       <div class="dash-kpi red clickable" onclick="dashIrAlumnos('Debe')" title="Ver alumnos con deuda"><div class="dash-kpi-label">Con deuda</div><div class="dash-kpi-val">${deben.length}</div><div class="dash-kpi-sub">Deuda: ${fmt(totalDeuda)}</div></div>
       <div class="dash-kpi orange clickable" onclick="dashIrTab('inactivos')" title="Ver alumnos inactivos"><div class="dash-kpi-label">Inactivos (bajas)</div><div class="dash-kpi-val">${inactivos.length}</div><div class="dash-kpi-sub">${inacDeuda>0?'Deuda: '+fmt(inacDeuda):'Sin deuda pendiente'}</div></div>
       <div class="dash-kpi purple clickable" onclick="dashIrAlumnos('Vacante')" title="Ver vacantes"><div class="dash-kpi-label">Vacantes</div><div class="dash-kpi-val">${vacantes.length}</div><div class="dash-kpi-sub">Lugares disponibles</div></div>
+      <div class="dash-kpi teal clickable" onclick="dashIrAlumnos('Matrícula')" title="Ver alumnos en condición Matrícula"><div class="dash-kpi-label">Matriculados</div><div class="dash-kpi-val">${matriculados.length}</div><div class="dash-kpi-sub">Pendientes de matrícula</div></div>
     </div>
 
     <div class="dash-section-title"><i class="ti ti-cash"></i>Finanzas del período</div>
@@ -7858,9 +7861,33 @@ document.addEventListener('keydown', function(e){
 });
 // ── FIN BÚSQUEDA GLOBAL ────────────────────────────────────────
 
+// Calcula y aplica la cuota correspondiente cuando el estado es "Vacante" o "Matrícula".
+// Vacante: precio único (Reserva de Vacante Ciclo Lectivo), igual para todas las carreras.
+// Matrícula: matrícula según carrera/año, menos la reserva ya pagada.
+function aplicarCuotaVacanteMatricula(estado){
+  const carrera = document.getElementById('ed-carrera').value;
+  const anio = document.getElementById('ed-anio').value;
+  const mat = getMatriculaVigente();
+  const esEF123 = (carrera==='Educación Física' && (anio==='1°'||anio==='2°'||anio==='3°'));
+  let monto;
+  if(estado==='Vacante'){
+    monto = mat.reserva || 0;
+  } else {
+    const matriculaGrupo = esEF123 ? mat.ef123 : mat.general;
+    monto = Math.max(0, (matriculaGrupo||0) - (mat.reserva||0));
+  }
+  document.getElementById('ed-cuota').value = monto;
+  showToast('Cuota actualizada automáticamente → $'+monto.toLocaleString('es-AR'), 'info');
+}
+
 function recalcCuotaEdit(){
   const carrera = document.getElementById('ed-carrera').value;
   const anio = document.getElementById('ed-anio').value;
+  const estadoActual = document.getElementById('ed-estado').value;
+  if(estadoActual==='Vacante' || estadoActual==='Matrícula'){
+    aplicarCuotaVacanteMatricula(estadoActual);
+    return;
+  }
   const originalCarrera = document.getElementById('ed-carrera')._originalCarrera || '';
   const originalAnio = document.getElementById('ed-anio')._originalAnio || '';
   function tipoDesde(c,a){ return (c==='Educación Física'&&(a==='1°'||a==='2°'||a==='3°'))?'ef123':'general'; }
@@ -7901,6 +7928,9 @@ function edEstadoChange(){
   const v = document.getElementById('ed-estado').value;
   const box = document.getElementById('ed-acuerdo-fields');
   if(box) box.style.display = v==='Acuerdo'?'':'none';
+  if(v==='Vacante' || v==='Matrícula'){
+    aplicarCuotaVacanteMatricula(v);
+  }
 }
 
 // ── BECAS ───────────────────────────────────────────────────────
