@@ -96,6 +96,7 @@ tr:hover td{background:#fafaf5}
 .concepto-tag.cuota{background:#fde8d8;color:#7b3f00}
 .concepto-tag.matricula{background:#d1ecf1;color:#0c5460}
 .concepto-tag.reserva{background:#e8d5f5;color:#5b2c8d}
+.concepto-tag.diferencia{background:#ffe8cc;color:#8a4b00}
 .concepto-tag.otro{background:#e9ecef;color:#495057}
 .monto-deuda{color:#c0392b;font-weight:600}
 .monto-ok{color:#888}
@@ -3142,7 +3143,8 @@ Apariente, Luciano | 1003-1004 | V"></textarea>
         <select id="nuevo-tipo" onchange="toggleMesField(); actualizarBtnConcepto(); sugerirMontoConcepto()">
           <option value="Cuota">Cuota</option>
           <option value="Matrícula">Matrícula</option>
-          <option value="Reserva de vacante">Reserva de vacante</option>
+          <option value="Reserva de vacante">Cuota vacante</option>
+          <option value="Diferencia">Diferencia</option>
           <option value="Otro">Otro</option>
         </select>
       </div>
@@ -3476,11 +3478,12 @@ function conceptoLabel(c){
     return label;
   }
   if(c.tipo==='Matrícula') return 'Matrícula' + (c.descripcion ? ' '+c.descripcion : '');
-  if(c.tipo==='Reserva de vacante') return 'Reserva' + (c.descripcion ? ' '+c.descripcion : '');
+  if(c.tipo==='Reserva de vacante') return 'Cuota vacante' + (c.descripcion ? ' '+c.descripcion : '');
+  if(c.tipo==='Diferencia') return 'Diferencia' + (c.descripcion ? ' '+c.descripcion : '');
   return c.descripcion || c.tipo;
 }
 function conceptoClass(tipo){
-  const m = {Cuota:'cuota',Matrícula:'matricula','Reserva de vacante':'reserva'};
+  const m = {Cuota:'cuota',Matrícula:'matricula','Reserva de vacante':'reserva',Diferencia:'diferencia'};
   return m[tipo]||'otro';
 }
 function recalcDeuda(a){
@@ -5547,9 +5550,39 @@ function saveAlumno(){
   const becaRedondeada = Math.round(becaPctInferido * 20) / 20;
   data.becaPct = (becaRedondeada >= 0.01 && becaRedondeada < 0.99) ? becaRedondeada : 0;
 
+  // ── Generación automática de la cuota adeudada al pasar a Vacante / Matrícula ──
+  // Vacante: crea un concepto "Reserva de vacante" (se muestra como "Cuota vacante") por el
+  // valor de la reserva vigente. Matrícula: si el alumno nunca pasó por "Vacante" se cobra la
+  // matrícula completa; si pasó por "Vacante" (pagada o no) se crea un concepto "Diferencia"
+  // por (matrícula - reserva), dejando la reserva impaga —si la hubiera— como deuda aparte.
+  // Solo se genera al momento de la transición, no en cada guardado posterior.
+  {
+    const alumnoPrevio = editingId!==-1 ? alumnos.find(x=>x.id===editingId) : null;
+    const estadoPrevio = alumnoPrevio ? alumnoPrevio.estado : null;
+    const conceptosBase = alumnoPrevio ? [...(alumnoPrevio.conceptos||[])] : [];
+    let nuevoConcepto = null;
+    if(nuevoEstado==='Vacante' && estadoPrevio!=='Vacante'){
+      const mat = getMatriculaVigente();
+      nuevoConcepto = {tipo:'Reserva de vacante', monto: mat.reserva||0, pagado:false};
+    } else if(nuevoEstado==='Matrícula' && estadoPrevio!=='Matrícula'){
+      const mat = getMatriculaVigente();
+      const esEF123 = (data.carrera==='Educación Física' && (data.anio==='1°'||data.anio==='2°'||data.anio==='3°'));
+      const matriculaGrupo = esEF123 ? mat.ef123 : mat.general;
+      const pasoPorVacante = conceptosBase.some(c=>c.tipo==='Reserva de vacante');
+      nuevoConcepto = pasoPorVacante
+        ? {tipo:'Diferencia', monto: Math.max(0,(matriculaGrupo||0)-(mat.reserva||0)), pagado:false}
+        : {tipo:'Matrícula', monto: matriculaGrupo||0, pagado:false};
+    }
+    if(nuevoConcepto){
+      conceptosBase.push(nuevoConcepto);
+      // Suma aditiva: no pisa una deuda ya cargada manualmente para otros conceptos.
+      data.deuda = (data.deuda||0) + (nuevoConcepto.monto||0);
+    }
+    data.conceptos = conceptosBase;
+  }
+
   if(editingId===-1){
     data.id = Date.now();
-    data.conceptos = [];
     alumnos.push(data);
   } else {
     const idx = alumnos.findIndex(x=>x.id===editingId);
@@ -6748,21 +6781,22 @@ function guardarMatricula(){
   showToast('✅ Reserva y Matrícula guardadas');
 }
 
-// Sugiere el monto al elegir "Matrícula" / "Reserva de vacante" en la ficha de un alumno.
-// Si el alumno ya tiene la Reserva pagada, la Matrícula se autocompleta con la diferencia.
+// Sugiere el monto al elegir "Matrícula" / "Cuota vacante" / "Diferencia" en la ficha de un alumno.
+// "Matrícula" siempre se sugiere completa; "Diferencia" se sugiere como (matrícula - reserva),
+// para el caso de un alumno que ya pasó por "Vacante" (esté esa reserva paga o no).
 function sugerirMontoConcepto(){
   const a = alumnos.find(x=>x.id===pagoId);
   if(!a) return;
   const tipo = document.getElementById('nuevo-tipo').value;
-  if(tipo!=='Reserva de vacante' && tipo!=='Matrícula') return;
+  if(tipo!=='Reserva de vacante' && tipo!=='Matrícula' && tipo!=='Diferencia') return;
   const v = getMatriculaVigente();
+  const matriculaGrupo = isEF123(a) ? v.ef123 : v.general;
   if(tipo==='Reserva de vacante'){
     document.getElementById('nuevo-monto').value = v.reserva || '';
+  } else if(tipo==='Diferencia'){
+    document.getElementById('nuevo-monto').value = Math.max(0, (matriculaGrupo||0) - (v.reserva||0)) || '';
   } else {
-    const matriculaGrupo = isEF123(a) ? v.ef123 : v.general;
-    const yaTieneReserva = (a.conceptos||[]).some(c=>c.tipo==='Reserva de vacante' && c.pagado);
-    const sugerido = yaTieneReserva ? Math.max(0, matriculaGrupo - v.reserva) : matriculaGrupo;
-    document.getElementById('nuevo-monto').value = sugerido || '';
+    document.getElementById('nuevo-monto').value = matriculaGrupo || '';
   }
 }
 
@@ -7866,9 +7900,9 @@ document.addEventListener('keydown', function(e){
 
 // Calcula y aplica la cuota correspondiente cuando el estado es "Vacante" o "Matrícula".
 // Vacante: precio único (Reserva de Vacante Ciclo Lectivo), igual para todas las carreras.
-// Matrícula: matrícula según carrera/año. Si el alumno ya tiene la Reserva pagada, se cobra
-// solo la diferencia (matrícula - reserva); si la Reserva sigue impaga (o no existe), se cobra
-// la matrícula completa.
+// Matrícula: matrícula según carrera/año. Si el alumno pasó por "Vacante" (esa reserva esté
+// paga o todavía impaga) se cobra solo la diferencia (matrícula - reserva) — la reserva, si
+// sigue impaga, queda como deuda aparte. Si nunca pasó por "Vacante", se cobra la matrícula completa.
 function aplicarCuotaVacanteMatricula(estado){
   const carrera = document.getElementById('ed-carrera').value;
   const anio = document.getElementById('ed-anio').value;
@@ -7880,8 +7914,8 @@ function aplicarCuotaVacanteMatricula(estado){
   } else {
     const matriculaGrupo = esEF123 ? mat.ef123 : mat.general;
     const a = editingId!==-1 ? alumnos.find(x=>x.id===editingId) : null;
-    const reservaPaga = a ? (a.conceptos||[]).some(c=>c.tipo==='Reserva de vacante' && c.pagado) : false;
-    monto = reservaPaga ? Math.max(0, (matriculaGrupo||0) - (mat.reserva||0)) : (matriculaGrupo||0);
+    const pasoPorVacante = a ? (a.conceptos||[]).some(c=>c.tipo==='Reserva de vacante') : false;
+    monto = pasoPorVacante ? Math.max(0, (matriculaGrupo||0) - (mat.reserva||0)) : (matriculaGrupo||0);
   }
   document.getElementById('ed-cuota').value = monto;
   showToast('Cuota actualizada automáticamente → $'+monto.toLocaleString('es-AR'), 'info');
