@@ -1133,6 +1133,16 @@ img, svg{max-width:100%}
       </div>
     </div>
 
+  <!-- Corrección de cuotas ya generadas con arancel viejo -->
+  <div class="resumen-card" id="card-correccion-mes" style="margin-top:16px">
+    <h3 style="margin:0 0 6px 0"><i class="ti ti-tool"></i>Corregir cuota de un mes ya generado</h3>
+    <div style="font-size:12px;color:#888;margin-bottom:10px">
+      Usar <strong>solo</strong> si el cierre de mes ya generó la cuota con el arancel viejo (por el bug del auto-corrector). Primero aplicá el arancel nuevo arriba en ambas tarjetas. Después, esto busca en cada alumno activo la cuota <strong>no pagada</strong> del mes indicado y le pone el valor de su "cuota" actual (ya recalculada arriba con el arancel vigente y su % de beca real). No genera cuotas nuevas ni duplica nada — solo corrige el monto del registro existente.
+    </div>
+    <div class="field"><label>Mes a corregir</label><input id="correccion-mes" placeholder="Ej: Septiembre" value="Septiembre"></div>
+    <button class="btn primary" style="width:100%;font-size:13px" onclick="corregirCuotaMesGenerado()"><i class="ti ti-refresh"></i>Corregir cuotas de ese mes</button>
+  </div>
+
   <!-- Historial de cambios de arancel -->
   <div style="margin-top:16px" id="arancel-historial-wrap">
     <div class="section-divider"><span><i class="ti ti-clipboard-list"></i>Historial de cambios de arancel</span></div>
@@ -6658,6 +6668,44 @@ function aplicarArancel(tipo){
   previewAranceles();
   renderArancelHistorial();
   showToast(`✅ Arancel guardado · ${actualizados} alumnos actualizados · Se aplica en el próximo cierre de mes`);
+}
+
+// ── Corrección de cuotas de un mes ya generado con arancel viejo ───────────
+function corregirCuotaMesGenerado(){
+  const mesObjetivo = document.getElementById('correccion-mes').value.trim();
+  if(!mesObjetivo){ showToast('Ingresá el mes a corregir', 'error'); return; }
+
+  const afectados = [];
+  alumnos.forEach(a=>{
+    if(a.estado==='Baja' || a.estado==='Vacante') return;
+    if(!a.conceptos) return;
+    const concepto = a.conceptos.find(c => c.tipo==='Cuota' && c.mes===mesObjetivo && !c.pagado);
+    if(!concepto) return;
+    if(Math.abs(concepto.monto - a.cuota) > 0.5){
+      afectados.push({ a, concepto, montoViejo: concepto.monto, montoNuevo: a.cuota });
+    }
+  });
+
+  if(afectados.length === 0){
+    showToast(`No se encontraron cuotas de "${mesObjetivo}" pendientes que difieran del valor vigente`, 'info');
+    return;
+  }
+
+  const ej = afectados[0];
+  const msg = `Se corregirán ${afectados.length} cuotas de "${mesObjetivo}" (solo las no pagadas), llevando el monto al valor de "cuota" actual de cada alumno.\n\nEjemplo: ${ej.a.nombre}: ${fmt(ej.montoViejo)} → ${fmt(ej.montoNuevo)}\n\n¿Confirmar? Esta acción no se puede deshacer automáticamente.`;
+  if(!confirm(msg)) return;
+
+  afectados.forEach(({a, concepto, montoNuevo}) => {
+    concepto.monto = montoNuevo;
+    recalcDeuda(a);
+  });
+
+  renderStats(); renderAlumnosActual();
+  guardarAhora().then(ok=>{
+    showToast(ok
+      ? `✅ Se corrigieron ${afectados.length} cuotas de "${mesObjetivo}" y se sincronizó con la nube`
+      : `⚠️ Se corrigieron ${afectados.length} cuotas de "${mesObjetivo}" en este dispositivo, pero no se pudo confirmar en la nube. Revisá tu conexión.`);
+  });
 }
 
 // ══════════════════════════════════════════════════════════════
