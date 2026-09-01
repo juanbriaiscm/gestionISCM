@@ -7866,7 +7866,9 @@ document.addEventListener('keydown', function(e){
 
 // Calcula y aplica la cuota correspondiente cuando el estado es "Vacante" o "Matrícula".
 // Vacante: precio único (Reserva de Vacante Ciclo Lectivo), igual para todas las carreras.
-// Matrícula: matrícula según carrera/año, menos la reserva ya pagada.
+// Matrícula: matrícula según carrera/año. Si el alumno ya tiene la Reserva pagada, se cobra
+// solo la diferencia (matrícula - reserva); si la Reserva sigue impaga (o no existe), se cobra
+// la matrícula completa.
 function aplicarCuotaVacanteMatricula(estado){
   const carrera = document.getElementById('ed-carrera').value;
   const anio = document.getElementById('ed-anio').value;
@@ -7877,7 +7879,9 @@ function aplicarCuotaVacanteMatricula(estado){
     monto = mat.reserva || 0;
   } else {
     const matriculaGrupo = esEF123 ? mat.ef123 : mat.general;
-    monto = Math.max(0, (matriculaGrupo||0) - (mat.reserva||0));
+    const a = editingId!==-1 ? alumnos.find(x=>x.id===editingId) : null;
+    const reservaPaga = a ? (a.conceptos||[]).some(c=>c.tipo==='Reserva de vacante' && c.pagado) : false;
+    monto = reservaPaga ? Math.max(0, (matriculaGrupo||0) - (mat.reserva||0)) : (matriculaGrupo||0);
   }
   document.getElementById('ed-cuota').value = monto;
   showToast('Cuota actualizada automáticamente → $'+monto.toLocaleString('es-AR'), 'info');
