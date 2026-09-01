@@ -1588,6 +1588,7 @@ img, svg{max-width:100%}
           <th style="min-width:72px">% a aplicar</th>
           <th style="min-width:88px">Estado actual</th>
           <th style="min-width:90px">Obs.</th>
+          <th style="min-width:78px" title="Marcá esto si el alumno no pagó la cuota del mes anterior: en el próximo cierre de mes va a recibir la cuota completa (sin beca) en lugar de la cuota becada.">No pagó mes ant.</th>
           <th class="beca-col-acciones" style="min-width:72px">Acciones</th>
         </tr>
         <tr class="beca-thead-filters">
@@ -1648,6 +1649,7 @@ img, svg{max-width:100%}
             <option value="Baja">Baja</option>
           </select></th>
           <th></th>
+          <th></th>
           <th class="beca-col-acciones"></th>
         </tr>
       </thead>
@@ -1660,7 +1662,9 @@ img, svg{max-width:100%}
   <div class="table-wrap">
     <table>
       <thead><tr>
-        <th>Profesor/a</th><th>Hijo/a (alumno)</th><th>% de descuento</th><th>Acciones</th>
+        <th>Profesor/a</th><th>Hijo/a (alumno)</th><th>% de descuento</th>
+        <th style="min-width:78px" title="Marcá esto si el/la alumno/a no pagó la cuota del mes anterior: en el próximo cierre de mes va a recibir la cuota completa (sin descuento) en lugar de la cuota con descuento.">No pagó mes ant.</th>
+        <th>Acciones</th>
       </tr></thead>
       <tbody id="tbody-hijos-prof"></tbody>
     </table>
@@ -6405,6 +6409,13 @@ function ejecutarCierre(){
       recalcDeuda(a);
     }
   });
+  // "No pagó mes anterior" ya se aplicó en las cuotas recién generadas (cuota completa,
+  // sin beca). Resetear la marca para que el mes que viene vuelvan a tener su beca normal,
+  // salvo que se los vuelva a marcar.
+  let becasResetadas = false;
+  BECAS_SOCIO.forEach(b=>{ if(b.suspendida){ b.suspendida=false; becasResetadas=true; } });
+  HIJOS_PROF.forEach(h=>{ if(h.suspendida){ h.suspendida=false; becasResetadas=true; } });
+  if(becasResetadas) becaSave();
   // Update mes period label
   const year = mes.match(/\d{4}/)?.[0] || new Date().getFullYear().toString();
   const nuevoYear = nuevoEsEnero ? (parseInt(year)+1).toString() : year;
@@ -6620,13 +6631,15 @@ function cuotaConBeca(becaPct, arancel){
 
 // Devuelve el % de beca REAL de un alumno: busca por nombre en Becas Socioeconómicas y en
 // Hijos de Profesores, y toma el MAYOR de los dos (0 si no está registrado en ninguna).
+// Si la beca está marcada como "suspendida" (no pagó la cuota del mes anterior), se ignora
+// el % de esa beca para este cálculo — es decir, ese mes le corresponde la cuota completa.
 function getBecaPctAlumno(alumno){
   if(!alumno || !alumno.nombre) return 0;
   const key = normalizar(alumno.nombre);
   const bs = BECAS_SOCIO.find(b=>b.alumno && normalizar(b.alumno)===key);
-  const pctSocio = (bs && bs.pctAplicar!=null) ? bs.pctAplicar : 0;
+  const pctSocio = (bs && bs.pctAplicar!=null && !bs.suspendida) ? bs.pctAplicar : 0;
   const hp = HIJOS_PROF.find(h=>h.hijo && normalizar(h.hijo)===key);
-  const pctHijo = (hp && hp.pct!=null) ? hp.pct : 0;
+  const pctHijo = (hp && hp.pct!=null && !hp.suspendida) ? hp.pct : 0;
   return Math.max(pctSocio, pctHijo);
 }
 
@@ -6649,16 +6662,18 @@ function previewAranceles(){
   document.getElementById('am-vigente').textContent = fmt(vigG.total);
   document.getElementById('ef-vigente').textContent = fmt(vigEF.total);
 
-  // Toma el MAYOR entre Becas Socioeconómicas e Hijos de Profesores (mismo criterio que getBecaPctAlumno)
+  // Toma el MAYOR entre Becas Socioeconómicas e Hijos de Profesores (mismo criterio que getBecaPctAlumno).
+  // Si la beca está marcada como "no pagó mes anterior" (suspendida), no cuenta para este cálculo:
+  // el próximo cierre le va a cargar la cuota completa.
   const becaMap = {};
   BECAS_SOCIO.forEach(b => {
-    if(b.alumno && b.pctAplicar != null){
+    if(b.alumno && b.pctAplicar != null && !b.suspendida){
       const key = normalizar(b.alumno);
       becaMap[key] = Math.max(becaMap[key]||0, b.pctAplicar);
     }
   });
   HIJOS_PROF.forEach(h => {
-    if(h.hijo && h.pct != null){
+    if(h.hijo && h.pct != null && !h.suspendida){
       const key = normalizar(h.hijo);
       becaMap[key] = Math.max(becaMap[key]||0, h.pct);
     }
@@ -7110,8 +7125,8 @@ function becaAplicarImport(filas){
   showToast(`✅ Importación completa: ${actualizadas} actualizada(s), ${agregadas} nueva(s) agregada(s)`);
 }
 
-function becaParsearCSVTexto(texto){
-  // Parser simple de CSV que soporta comillas y comas dentro de campos
+function becaCSVaMatriz(texto){
+  // Parser simple de CSV a matriz de filas/columnas, soporta comillas y comas dentro de campos
   const filas = [];
   let fila = [], campo = '', dentroComillas = false;
   const t = texto.replace(/^\uFEFF/, '');
@@ -7131,13 +7146,31 @@ function becaParsearCSVTexto(texto){
     }
   }
   if(campo!=='' || fila.length){ fila.push(campo); filas.push(fila); }
-  if(!filas.length) return [];
-  const headers = filas[0];
-  return filas.slice(1).filter(r=>r.some(v=>v!=='')).map(r=>{
+  return filas;
+}
+
+// Busca la fila de encabezados dentro de una matriz (array de arrays) —
+// la primera fila que tenga una celda que normalice a "alumno" — y arma
+// objetos {header: valor} para cada fila de datos debajo. Soporta filas y
+// columnas vacías antes del encabezado real (como en el Excel de ISCM,
+// donde la fila 1 y la columna A suelen venir en blanco).
+function becaFilasDesdeMatriz(matriz){
+  let headerRowIdx = -1;
+  for(let r=0; r<Math.min(matriz.length, 20); r++){
+    const fila = matriz[r]||[];
+    if(fila.some(v=>normalizar(String(v==null?'':v))==='alumno')){ headerRowIdx = r; break; }
+  }
+  if(headerRowIdx<0) return null;
+  const headers = matriz[headerRowIdx];
+  const filas = [];
+  for(let r=headerRowIdx+1; r<matriz.length; r++){
+    const fila = matriz[r]||[];
+    if(fila.every(v=>v===''||v===null||v===undefined)) continue;
     const obj = {};
-    headers.forEach((h,i)=> obj[h] = r[i]!==undefined ? r[i] : '');
-    return obj;
-  });
+    headers.forEach((h,i)=>{ if(h!=null && h!=='' && !(h in obj)) obj[h] = fila[i]!==undefined ? fila[i] : ''; });
+    filas.push(obj);
+  }
+  return filas;
 }
 
 function becaProcesarImport(input){
@@ -7145,6 +7178,7 @@ function becaProcesarImport(input){
   if(!file) return;
   const nombre = file.name.toLowerCase();
   const ext = nombre.split('.').pop();
+  const errNoHeader = 'No se encontró una columna llamada "Alumno" en el archivo. Revisá que exista esa columna (puede estar en cualquier fila/posición).';
 
   if(ext==='json'){
     const reader = new FileReader();
@@ -7167,7 +7201,9 @@ function becaProcesarImport(input){
     const reader = new FileReader();
     reader.onload = e => {
       try {
-        const filasRaw = becaParsearCSVTexto(e.target.result);
+        const matriz = becaCSVaMatriz(e.target.result);
+        const filasRaw = becaFilasDesdeMatriz(matriz);
+        if(!filasRaw){ showToast(errNoHeader,'error'); return; }
         const filas = filasRaw.map(becaMapearFila).filter(Boolean);
         becaAplicarImport(filas);
       } catch(err){
@@ -7184,7 +7220,10 @@ function becaProcesarImport(input){
           const wb = XLSX.read(e.target.result, {type:'array'});
           const nombreHoja = wb.SheetNames.find(n=>normalizar(n).includes('beca')) || wb.SheetNames[0];
           const ws = wb.Sheets[nombreHoja];
-          const filasRaw = XLSX.utils.sheet_to_json(ws, {defval:''});
+          if(!ws || !ws['!ref']){ showToast('La hoja del Excel está vacía','error'); return; }
+          const matriz = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', raw:true});
+          const filasRaw = becaFilasDesdeMatriz(matriz);
+          if(!filasRaw){ showToast(errNoHeader,'error'); return; }
           const filas = filasRaw.map(becaMapearFila).filter(Boolean);
           becaAplicarImport(filas);
         } catch(err){
@@ -8580,7 +8619,7 @@ function renderBecas(){
   const tbodySocio = document.getElementById('tbody-becas-socio');
   if(tbodySocio){
     if(!socioData.length){
-      tbodySocio.innerHTML = `<tr><td colspan="16" style="text-align:center;color:#aaa;padding:20px">No se encontraron resultados</td></tr>`;
+      tbodySocio.innerHTML = `<tr><td colspan="17" style="text-align:center;color:#aaa;padding:20px">No se encontraron resultados</td></tr>`;
     } else {
       tbodySocio.innerHTML = socioData.map((b,i)=>{
         const idx = BECAS_SOCIO.indexOf(b);
@@ -8589,6 +8628,7 @@ function renderBecas(){
         const existe = alumnoActivoExiste(b.alumno);
         const rowStyle = existe ? '' : 'background:#fff8f8;opacity:0.75';
         const orphanBadge = existe ? '' : `<span title="Este alumno no está en el padrón activo" style="margin-left:6px;font-size:10px;background:#fecaca;color:#b91c1c;padding:1px 6px;border-radius:8px;font-weight:700">⚠ sin padrón</span>`;
+        const noPagoBadge = b.suspendida ? `<span style="margin-left:6px;font-size:10px;background:#fde68a;color:#92400e;padding:1px 6px;border-radius:8px;font-weight:700" title="El próximo cierre de mes le va a asignar la cuota completa, sin beca">⚠ sin beca próx. cierre</span>` : '';
 
         // Estado actual cruzado con alumnos[]
         const alumnoData = alumnos.find(a=>normalizar(a.nombre)===normalizar(b.alumno));
@@ -8610,7 +8650,7 @@ function renderBecas(){
 
         return `<tr style="${rowStyle}">
           <td style="text-align:center"><input type="checkbox" class="beca-row-chk" data-idx="${idx}" ${becaSeleccionadas.has(idx)?'checked':''} onchange="becaToggleRow(${idx},this.checked)" style="cursor:pointer"></td>
-          <td><strong>${b.alumno}</strong>${orphanBadge}</td>
+          <td><strong>${b.alumno}</strong>${orphanBadge}${noPagoBadge}</td>
           <td>${b.anio}</td>
           <td>${b.carrera}</td>
           <td>${b.ciudad}</td>
@@ -8625,6 +8665,11 @@ function renderBecas(){
           <td style="text-align:center"><span style="background:${badge};color:#fff;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600">${pctPct}%</span></td>
           <td style="text-align:center">${estadoCelda}</td>
           <td style="font-size:11px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${b.obs}</td>
+          <td style="text-align:center">
+            <label style="display:inline-flex;align-items:center;cursor:pointer;gap:4px" title="No pagó la cuota del mes anterior: el próximo cierre de mes le carga la cuota completa (sin beca)">
+              <input type="checkbox" ${b.suspendida?'checked':''} onchange="becaToggleNoPago(${idx})" style="cursor:pointer;accent-color:#c0392b">
+            </label>
+          </td>
           <td class="beca-col-acciones" style="white-space:nowrap">
             <button onclick="editarBecaSocio(${idx})" style="background:#f0f0e8;border:none;border-radius:4px;padding:4px 8px;font-size:12px;cursor:pointer;margin-right:4px"><i class="ti ti-edit"></i></button>
             <button onclick="eliminarBecaSocio(${idx})" style="background:#fee2e2;border:none;border-radius:4px;padding:4px 8px;font-size:12px;cursor:pointer"><i class="ti ti-trash"></i></button>
@@ -8642,15 +8687,20 @@ function renderBecas(){
   const tbodyHijos = document.getElementById('tbody-hijos-prof');
   if(tbodyHijos){
     if(!hijosData.length){
-      tbodyHijos.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#aaa;padding:20px">No se encontraron resultados</td></tr>`;
+      tbodyHijos.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#aaa;padding:20px">No se encontraron resultados</td></tr>`;
     } else {
       tbodyHijos.innerHTML = hijosData.map((h,i)=>{
         const idx = HIJOS_PROF.indexOf(h);
         const pct = Math.round(h.pct*100);
         return `<tr>
           <td><strong>${h.profesor}</strong></td>
-          <td>${h.hijo}</td>
+          <td>${h.hijo}${h.suspendida?'<span style="margin-left:6px;font-size:10px;background:#fde68a;color:#92400e;padding:1px 6px;border-radius:8px;font-weight:700" title="El próximo cierre de mes le va a asignar la cuota completa, sin descuento">⚠ sin desc. próx. cierre</span>':''}</td>
           <td style="text-align:center"><span style="background:#b8860b;color:#fff;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600">${pct}%</span></td>
+          <td style="text-align:center">
+            <label style="display:inline-flex;align-items:center;cursor:pointer;gap:4px" title="No pagó la cuota del mes anterior: el próximo cierre de mes le carga la cuota completa (sin descuento)">
+              <input type="checkbox" ${h.suspendida?'checked':''} onchange="hijoToggleNoPago(${idx})" style="cursor:pointer;accent-color:#c0392b">
+            </label>
+          </td>
           <td>
             <button onclick="editarHijoProf(${idx})" style="background:#f0f0e8;border:none;border-radius:4px;padding:4px 8px;font-size:12px;cursor:pointer;margin-right:4px"><i class="ti ti-edit"></i></button>
             <button onclick="eliminarHijoProf(${idx})" style="background:#fee2e2;border:none;border-radius:4px;padding:4px 8px;font-size:12px;cursor:pointer"><i class="ti ti-trash"></i></button>
@@ -8788,6 +8838,33 @@ function eliminarBecaSocio(idx){
   BECAS_SOCIO.splice(idx,1);
   becaSave();
   renderBecas();
+}
+
+// Marca/desmarca que el alumno no pagó la cuota del mes anterior. Mientras esté
+// marcado, getBecaPctAlumno() ignora su % de beca, así que el próximo cierre de
+// mes le va a generar la cuota COMPLETA en vez de la cuota becada. La marca se
+// resetea sola después de ese cierre (ver cerrarMes), para que vuelva a tener
+// su beca normal al mes siguiente salvo que se la marque de nuevo.
+function becaToggleNoPago(idx){
+  const b = BECAS_SOCIO[idx];
+  if(!b) return;
+  b.suspendida = !b.suspendida;
+  becaSave();
+  renderBecas();
+  showToast(b.suspendida
+    ? `⚠ ${b.alumno}: el próximo cierre de mes le va a cargar la cuota completa (sin beca)`
+    : `✔ ${b.alumno}: vuelve a tener su beca normal`);
+}
+
+function hijoToggleNoPago(idx){
+  const h = HIJOS_PROF[idx];
+  if(!h) return;
+  h.suspendida = !h.suspendida;
+  becaSave();
+  renderBecas();
+  showToast(h.suspendida
+    ? `⚠ ${h.hijo}: el próximo cierre de mes le va a cargar la cuota completa (sin descuento)`
+    : `✔ ${h.hijo}: vuelve a tener su descuento normal`);
 }
 
 function eliminarHijoProf(idx){
