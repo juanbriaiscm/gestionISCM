@@ -873,6 +873,7 @@ img, svg{max-width:100%}
         <option value="Debe">Debe</option>
         <option value="Acuerdo">Acuerdo de pago</option>
         <option value="Vacante">Vacante</option>
+        <option value="Matrícula">Matrícula</option>
       </select>
       <select id="fil-cuotas" onchange="renderTable()" title="Filtrar por cuotas adeudadas" class="more-filter" style="display:none">
         <option value="">Todas las cuotas</option>
@@ -1637,6 +1638,7 @@ img, svg{max-width:100%}
             <option value="Debe">Debe</option>
             <option value="Acuerdo">Acuerdo</option>
             <option value="Vacante">Vacante</option>
+            <option value="Matrícula">Matrícula</option>
             <option value="Baja">Baja</option>
           </select></th>
           <th></th>
@@ -3096,7 +3098,7 @@ Apariente, Luciano | 1003-1004 | V"></textarea>
   <div class="modal">
     <h2>Cierre de mes</h2>
     <div class="info-box">
-      Al cerrar el mes, a todos los alumnos <strong>Al día</strong> y <strong>Con deuda</strong> se les agregará automáticamente una cuota del nuevo mes. Los alumnos en <strong>Baja</strong> o <strong>Vacante</strong> no se modifican.
+      Al cerrar el mes, a todos los alumnos <strong>Al día</strong> y <strong>Con deuda</strong> se les agregará automáticamente una cuota del nuevo mes. Los alumnos en <strong>Baja</strong>, <strong>Vacante</strong> o <strong>Matrícula</strong> no se modifican.
     </div>
     <div class="field"><label>Nombre del nuevo mes</label><input id="cierre-mes" placeholder="Ej: Junio"></div>
     <div style="font-size:13px;color:#555;margin-top:8px" id="cierre-preview"></div>
@@ -3611,8 +3613,8 @@ function renderTable(){
 
 }
 function renderResumen(){
-  // Solo alumnos activos (excluye Baja y Vacante)
-  const alumnosActivos = alumnos.filter(a=>a.estado!=='Baja'&&a.estado!=='Vacante');
+  // Solo alumnos activos (excluye Baja, Vacante y Matrícula)
+  const alumnosActivos = alumnos.filter(a=>a.estado!=='Baja'&&a.estado!=='Vacante'&&a.estado!=='Matrícula');
   const carreras = [...new Set(alumnosActivos.map(a=>a.carrera))].sort();
 
   const todosInactivos = getInactivosReales();
@@ -4237,7 +4239,7 @@ async function restaurarDeudaAplicar(){
             { tipo:'Cuota', descripcion:'Deuda restaurada', monto: monto, pagado: false }
           ];
         }
-        alumno.estado = (alumno.estado === 'Al día' || alumno.estado === 'Vacante') ? 'Debe' : alumno.estado;
+        alumno.estado = (alumno.estado === 'Al día' || alumno.estado === 'Vacante' || alumno.estado === 'Matrícula') ? 'Debe' : alumno.estado;
       } else {
         // Monto 0 — marcar todas las cuotas como pagadas
         (alumno.conceptos||[]).forEach(c=>{ if(c.tipo==='Cuota' && !c.pagado) c.pagado = true; });
@@ -5978,6 +5980,7 @@ function renderDashboard(){
   if(provVencidas>0) alertas.push({type:'danger', tab:()=>dashIrTab('proveedores'), msg:`${provVencidas} factura${provVencidas!==1?'s':''} de proveedor vencida${provVencidas!==1?'s':''} (${fmt(provTotalVencido)})`});
   if(saldoCaja<0) alertas.push({type:'danger', tab:()=>dashIrTab('caja'), msg:`Saldo de caja negativo: ${fmt(saldoCaja)}`});
   if(vacantes.length>0) alertas.push({type:'info', tab:()=>dashIrAlumnos('Vacante'), msg:`${vacantes.length} alumnos en estado Vacante`});
+  if(matriculados.length>0) alertas.push({type:'info', tab:()=>dashIrAlumnos('Matrícula'), msg:`${matriculados.length} alumnos en estado Matrícula`});
   if(sinConciliar>0) alertas.push({type:'warn', tab:()=>dashIrTab('conciliacion'), msg:`${sinConciliar} movimiento${sinConciliar!==1?'s':''} sin conciliar`});
   if(cobMeses.length===0) alertas.push({type:'info', tab:()=>dashIrTab('cobranza'), msg:'Todavía no cargaste cobranza este período — cargala en Facturación'});
   if(cobMeses.length>0 && varCob!==null && varCob>50) alertas.push({type:'ok', tab:()=>dashIrTab('cobranza'), msg:`Cobranza de ${ultimoMes.mes} creció ${varCob.toFixed(1)}% vs mes anterior`});
@@ -6620,7 +6623,7 @@ function previewAranceles(){
 
   // Alumnos activos que tienen beca registrada en BECAS_SOCIO o HIJOS_PROF
   const becados = alumnos.filter(a => {
-    if(a.estado === 'Baja' || a.estado === 'Vacante') return false;
+    if(a.estado === 'Baja' || a.estado === 'Vacante' || a.estado === 'Matrícula') return false;
     const key = normalizar(a.nombre);
     return becaMap[key] != null && becaMap[key] > 0;
   });
@@ -6675,7 +6678,7 @@ function aplicarArancel(tipo){
   const arancelActual = getCurrentArancel(tipo);
 
   const afectados = alumnos.filter(a => {
-    if(a.estado === 'Baja' || a.estado === 'Vacante') return false;
+    if(a.estado === 'Baja' || a.estado === 'Vacante' || a.estado === 'Matrícula') return false;
     return arancelTipoAlumno(a) === tipo;
   });
 
@@ -6770,7 +6773,7 @@ function corregirCuotaMesGenerado(){
 
   const afectados = [];
   alumnos.forEach(a=>{
-    if(a.estado==='Baja' || a.estado==='Vacante') return;
+    if(a.estado==='Baja' || a.estado==='Vacante' || a.estado==='Matrícula') return;
     if(!a.conceptos) return;
     const concepto = a.conceptos.find(c => c.tipo==='Cuota' && c.mes===mesObjetivo && !c.pagado);
     if(!concepto) return;
@@ -6899,7 +6902,7 @@ function descargarCSV(nombre, headers, rows){
 
 // ── 3. DASHBOARD: panel de becas ─────────────────────────────
 function getBecasDashStats(){
-  const activos = alumnos.filter(a=>a.estado!=='Baja'&&a.estado!=='Vacante');
+  const activos = alumnos.filter(a=>a.estado!=='Baja'&&a.estado!=='Vacante'&&a.estado!=='Matrícula');
   const nombresActivos = new Set(activos.map(a=>normalizar(a.nombre)));
   const becasActivas = BECAS_SOCIO.filter(b=>nombresActivos.has(normalizar(b.alumno)));
   const totalDesc = becasActivas.reduce((s,b)=>{
@@ -8257,6 +8260,7 @@ function renderBecas(){
             'Debe':    {bg:'#f8d7da',c:'#721c24'},
             'Acuerdo': {bg:'#cfe2ff',c:'#084298'},
             'Vacante': {bg:'#fff3cd',c:'#856404'},
+            'Matrícula': {bg:'#fff3cd',c:'#856404'},
             'Baja':    {bg:'#e2e3e5',c:'#383d41'},
           };
           const col = colorMap[est] || {bg:'#eee',c:'#555'};
