@@ -5482,7 +5482,9 @@ function openEdit(id){
   document.getElementById('ed-cuota').value=a?a.cuota:0;
   document.getElementById('ed-carrera')._originalCarrera = a?a.carrera:'';
   document.getElementById('ed-anio')._originalAnio = a?a.anio:'';
-  document.getElementById('ed-carrera')._becaPct = a?(a.becaPct||0):0;
+  // Se recalcula en el momento (no se usa el % que quedó guardado), por si cambió algo
+  // en Becas Socioeconómicas o Hijos de Profesores desde la última edición.
+  document.getElementById('ed-carrera')._becaPct = a ? getBecaPctAlumno(a) : 0;
   document.getElementById('ed-estado').value=a?a.estado:'Al día';
   document.getElementById('ed-cuotas-n').value=a?a.cuotasAdeudadas:0;
   document.getElementById('ed-deuda').value=a?a.deuda:0;
@@ -5543,12 +5545,9 @@ function saveAlumno(){
   } else {
     data.acuerdo = null;
   }
-  // ── Mejora 4: persistir % de beca explícito ──────────────
-  const tipoArancel = (data.carrera === 'Educación Física' && (data.anio === '1°' || data.anio === '2°' || data.anio === '3°')) ? 'ef123' : 'general';
-  const arancelParaBeca = getCurrentArancel(tipoArancel);
-  const becaPctInferido = inferirBecaPct(data.cuota, arancelParaBeca);
-  const becaRedondeada = Math.round(becaPctInferido * 20) / 20;
-  data.becaPct = (becaRedondeada >= 0.01 && becaRedondeada < 0.99) ? becaRedondeada : 0;
+  // % de beca real (mayor entre Becas Socioeconómicas e Hijos de Profesores).
+  // No se infiere de la cuota tipeada: la cuota se guarda tal cual, sin afectar el %.
+  data.becaPct = getBecaPctAlumno(data);
 
   // ── Generación automática de la cuota adeudada al pasar a Vacante / Matrícula ──
   // Vacante: crea un concepto "Reserva de vacante" (se muestra como "Cuota vacante") por el
@@ -6384,13 +6383,10 @@ function ejecutarCierre(){
   alumnos.forEach(a=>{
     if(a.estado==='Al día'||a.estado==='Debe'||a.estado==='Acuerdo'){
       if(!a.conceptos) a.conceptos=[];
-      // Recalcular cuota automáticamente según arancel vigente y beca del alumno
+      // Recalcular cuota automáticamente según arancel vigente y % de beca real del alumno
       const tipo = arancelTipoAlumno(a);
       const arancelActual = getCurrentArancel(tipo);
-      // Usar becaPct guardado o inferirlo si no existe
-      const becaPct = (typeof a.becaPct === 'number' && a.becaPct > 0.001 && a.becaPct < 0.999)
-        ? a.becaPct
-        : inferirBecaPct(a.cuota, arancelActual);
+      const becaPct = getBecaPctAlumno(a);
       let nuevaCuota;
       if(becaPct > 0.001 && becaPct < 0.999){
         nuevaCuota = cuotaConBeca(becaPct, arancelActual);
@@ -6615,14 +6611,20 @@ function cuotaConBeca(becaPct, arancel){
   return Math.round((becable + arancel.noDescuentable) * 100) / 100;
 }
 
-function inferirBecaPct(cuotaActual, arancelActual){
-  const becableActual = cuotaActual - arancelActual.noDescuentable;
-  if(arancelActual.baseBecable <= 0) return 0;
-  return 1 - becableActual / arancelActual.baseBecable;
+// Devuelve el % de beca REAL de un alumno: busca por nombre en Becas Socioeconómicas y en
+// Hijos de Profesores, y toma el MAYOR de los dos (0 si no está registrado en ninguna).
+function getBecaPctAlumno(alumno){
+  if(!alumno || !alumno.nombre) return 0;
+  const key = normalizar(alumno.nombre);
+  const bs = BECAS_SOCIO.find(b=>b.alumno && normalizar(b.alumno)===key);
+  const pctSocio = (bs && bs.pctAplicar!=null) ? bs.pctAplicar : 0;
+  const hp = HIJOS_PROF.find(h=>h.hijo && normalizar(h.hijo)===key);
+  const pctHijo = (hp && hp.pct!=null) ? hp.pct : 0;
+  return Math.max(pctSocio, pctHijo);
 }
 
 function getCurrentArancel(tipo){
-  // Usa siempre el arancel VIGENTE (no el borrador) para inferir % de beca actuales
+  // Usa siempre el arancel VIGENTE (no el borrador) para calcular cuotas con beca actuales
   return calcBaseArancel(tipo, getArancelVigente(tipo));
 }
 
@@ -6640,17 +6642,18 @@ function previewAranceles(){
   document.getElementById('am-vigente').textContent = fmt(vigG.total);
   document.getElementById('ef-vigente').textContent = fmt(vigEF.total);
 
+  // Toma el MAYOR entre Becas Socioeconómicas e Hijos de Profesores (mismo criterio que getBecaPctAlumno)
   const becaMap = {};
   BECAS_SOCIO.forEach(b => {
     if(b.alumno && b.pctAplicar != null){
-      becaMap[normalizar(b.alumno)] = b.pctAplicar;
+      const key = normalizar(b.alumno);
+      becaMap[key] = Math.max(becaMap[key]||0, b.pctAplicar);
     }
   });
-
-  // También HIJOS_PROF (si tienen % propio)
   HIJOS_PROF.forEach(h => {
     if(h.hijo && h.pct != null){
-      becaMap[normalizar(h.hijo)] = h.pct;
+      const key = normalizar(h.hijo);
+      becaMap[key] = Math.max(becaMap[key]||0, h.pct);
     }
   });
 
@@ -6708,7 +6711,6 @@ function previewAranceles(){
 function aplicarArancel(tipo){
   const vals = getArancelVals(tipo);
   const newArancel = calcBaseArancel(tipo, vals);
-  const arancelActual = getCurrentArancel(tipo);
 
   const afectados = alumnos.filter(a => {
     if(a.estado === 'Baja' || a.estado === 'Vacante' || a.estado === 'Matrícula') return false;
@@ -6721,7 +6723,7 @@ function aplicarArancel(tipo){
 
   let actualizados = 0;
   afectados.forEach(a => {
-    const becaPct = inferirBecaPct(a.cuota, arancelActual);
+    const becaPct = getBecaPctAlumno(a);
     const newCuota = cuotaConBeca(becaPct, newArancel);
     a.cuota = newCuota;
     actualizados++;
@@ -14989,14 +14991,10 @@ function bonoObtenerAlumno(b){
   return null;
 }
 
+// Mantenida por compatibilidad (usada por Bonos) — delega en getBecaPctAlumno, que ya
+// toma el mayor entre Becas Socioeconómicas e Hijos de Profesores.
 function bonoObtenerBecaPct(alumno){
-  if(!alumno) return 0;
-  const key = normalizar(alumno.nombre);
-  const bs = BECAS_SOCIO.find(b=>b.alumno && normalizar(b.alumno)===key);
-  if(bs && bs.pctAplicar!=null) return bs.pctAplicar;
-  const hp = HIJOS_PROF.find(h=>h.hijo && normalizar(h.hijo)===key);
-  if(hp && hp.pct!=null) return hp.pct;
-  return 0;
+  return getBecaPctAlumno(alumno);
 }
 
 function bonoTierPct(count){
