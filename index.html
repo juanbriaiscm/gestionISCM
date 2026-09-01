@@ -6387,81 +6387,11 @@ function ejecutarCierreAnio(){
 const ARANCEL_DRAFT_KEY = 'iscm_arancel_draft';
 const ARANCEL_VIGENTE_KEY = 'iscm_arancel_vigente';
 
-// Valores de fábrica
+// Valores de fábrica (Arancel de septiembre 2026)
 const ARANCEL_DEFAULTS = {
-  general: { curricular:51016.95, seguro:6711.54, asistencia:5033.65, equipPct:10, mantPct:10, resPct:8.93517 },
-  ef123:   { curricular:51016.95, extracurricular:10203.39, seguro:6711.53, asistencia:5033.65, equipPct:10, mantPct:10, resPct:7.44595 }
+  general: { curricular:55136.95, seguro:7498.46, asistencia:5623.85, equipPct:10, mantPct:10, resPct:8.94139 },
+  ef123:   { curricular:55136.95, extracurricular:11027.39, seguro:7498.46, asistencia:5623.85, equipPct:10, mantPct:10, resPct:7.451124 }
 };
-
-// ── Corrección automática de aranceles incorrectos en localStorage ─────────
-(function corregirArancelesYCuotas(){
-  const CORRECTO_GEN = 77523.98;
-  const CORRECTO_EF  = 89768.02;
-  try {
-    const vigKey = 'iscm_arancel_vigente';
-    const saved = localStorage.getItem(vigKey);
-    if(saved){
-      const d = JSON.parse(saved);
-      let dirty = false;
-      if(d.general){
-        const v = d.general;
-        const base = v.curricular;
-        const tot = base*(1+(v.equipPct||0)/100+(v.mantPct||0)/100+(v.resPct||0)/100)+(v.seguro||0)+(v.asistencia||0);
-        if(Math.abs(tot - CORRECTO_GEN) > 1){ d.general = {...ARANCEL_DEFAULTS.general}; dirty=true; }
-      }
-      if(d.ef123){
-        const v = d.ef123;
-        const base = (v.curricular||0)+(v.extracurricular||0);
-        const tot = base*(1+(v.equipPct||0)/100+(v.mantPct||0)/100+(v.resPct||0)/100)+(v.seguro||0)+(v.asistencia||0);
-        if(Math.abs(tot - CORRECTO_EF) > 1){ d.ef123 = {...ARANCEL_DEFAULTS.ef123}; dirty=true; }
-      }
-      if(dirty) localStorage.setItem(vigKey, JSON.stringify(d));
-    }
-    localStorage.removeItem('iscm_arancel_draft');
-  } catch(e){}
-
-  // Corregir cuotas incorrectas en localStorage
-  try {
-    const alumKey = 'iscm_alumnos_v3';
-    const saved = localStorage.getItem(alumKey);
-    if(!saved) return;
-    const alumnos = JSON.parse(saved);
-    let dirty = false;
-    const SIN_BECA_MAL_G=79805.24, SIN_BECA_MAL_EF=92473.91;
-    const SIN_BECA_OK_G=77523.98,  SIN_BECA_OK_EF=89768.02;
-    const BECA50_MAL=53412.11;
-    function isEF123(a){ return a.carrera==='Educación Física'&&(a.anio==='1°'||a.anio==='2°'||a.anio==='3°'); }
-    function noDesc(tipo){
-      const v=ARANCEL_DEFAULTS[tipo];
-      const base=tipo==='ef123'?v.curricular+v.extracurricular:v.curricular;
-      return v.seguro+v.asistencia+base*(v.equipPct/100)+base*(v.mantPct/100)+base*(v.resPct/100);
-    }
-    function baseBec(tipo){ const v=ARANCEL_DEFAULTS[tipo]; return tipo==='ef123'?v.curricular+v.extracurricular:v.curricular; }
-    alumnos.forEach(a => {
-      if(a.estado==='Baja') return;
-      const ef=isEF123(a);
-      const sinMal=ef?SIN_BECA_MAL_EF:SIN_BECA_MAL_G;
-      const sinOk=ef?SIN_BECA_OK_EF:SIN_BECA_OK_G;
-      const nd=noDesc(ef?'ef123':'general');
-      const bb=baseBec(ef?'ef123':'general');
-      const beca50Ok=Math.round((bb*0.5+nd)*100)/100;
-      if(Math.abs(a.cuota-sinMal)<0.05){a.cuota=sinOk;dirty=true;}
-      else if(Math.abs(a.cuota-BECA50_MAL)<0.05){a.cuota=beca50Ok;dirty=true;}
-      (a.conceptos||[]).forEach(c=>{
-        if(c.mes==='Junio'&&!c.pagado&&c.monto){
-          if(Math.abs(c.monto-sinMal)<0.05){c.monto=sinOk;dirty=true;}
-          else if(Math.abs(c.monto-BECA50_MAL)<0.05){c.monto=beca50Ok;dirty=true;}
-        }
-      });
-      if(dirty){
-        a.deuda=Math.round((a.conceptos||[]).filter(c=>!c.pagado&&c.monto).reduce((s,c)=>s+c.monto,0)*100)/100;
-        a.cuotasAdeudadas=(a.conceptos||[]).filter(c=>!c.pagado&&c.tipo==='Cuota').length;
-        a.estado=a.deuda>0?'Debe':'Al día';
-      }
-    });
-    if(dirty) localStorage.setItem(alumKey, JSON.stringify(alumnos));
-  } catch(e){ console.warn('Error corrección aranceles:', e); }
-})();
 
 function getArancelVigente(tipo){
   const saved = localStorage.getItem(ARANCEL_VIGENTE_KEY);
