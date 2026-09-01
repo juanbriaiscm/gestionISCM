@@ -1133,6 +1133,42 @@ img, svg{max-width:100%}
       </div>
     </div>
 
+  <!-- Reserva de Vacante y Matrícula del Ciclo Lectivo -->
+  <div class="section-divider" style="margin-top:16px"><span><i class="ti ti-calendar-event"></i>Reserva de Vacante y Matrícula — Ciclo Lectivo 2026</span></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:10px">
+    <div class="resumen-card">
+      <h3 style="margin:0 0 8px 0;font-size:15px"><i class="ti ti-bookmark"></i>Reserva de Vacante Ciclo Lectivo</h3>
+      <div style="font-size:12px;color:#888;margin-bottom:10px">Monto único, aplica a todas las carreras.</div>
+      <div class="field"><label>Monto ($)</label><input type="number" id="mat-reserva" step="0.01" oninput="previewMatricula()"></div>
+    </div>
+    <div class="resumen-card">
+      <h3 style="margin:0 0 8px 0;font-size:15px"><i class="ti ti-file-certificate"></i>Matrícula Ciclo Lectivo General</h3>
+      <div style="font-size:12px;color:#888;margin-bottom:10px">Psicopedagogía, Inglés, Matemática, Trabajo Social, Enfermería, Escena del Crimen y Ed. Física 4°.</div>
+      <div class="field"><label>Monto ($)</label><input type="number" id="mat-general" step="0.01" oninput="previewMatricula()"></div>
+    </div>
+    <div class="resumen-card">
+      <h3 style="margin:0 0 8px 0;font-size:15px"><i class="ti ti-run"></i>Matrícula Ciclo Lectivo 2026 — Ed. Física 1° a 3°</h3>
+      <div style="font-size:12px;color:#888;margin-bottom:10px">Educación Física 1°, 2° y 3° año.</div>
+      <div class="field"><label>Monto ($)</label><input type="number" id="mat-ef123" step="0.01" oninput="previewMatricula()"></div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:10px">
+    <div style="background:#f8f8f4;border-radius:8px;padding:12px 16px">
+      <div style="font-size:11px;color:#999">Diferencia Reserva y Matrícula año 2026 — Profesorados y Tec.</div>
+      <div id="mat-dif-general" style="font-size:18px;font-weight:700;color:#2980b9">—</div>
+    </div>
+    <div style="background:#f8f8f4;border-radius:8px;padding:12px 16px">
+      <div style="font-size:11px;color:#999">Diferencia Reserva y Matrícula año 2026 — I año Educ. Física</div>
+      <div id="mat-dif-ef123" style="font-size:18px;font-weight:700;color:#2980b9">—</div>
+    </div>
+  </div>
+  <div style="display:flex;justify-content:flex-end;margin-bottom:6px">
+    <button class="btn primary" style="font-size:13px" onclick="guardarMatricula()"><i class="ti ti-check"></i>Guardar Reserva y Matrícula</button>
+  </div>
+  <div style="font-size:11px;color:#888;margin:0 0 16px 2px">
+    Al agregar un concepto "Matrícula" o "Reserva de vacante" en la ficha de deuda y pagos de un alumno, el monto se autocompleta con estos valores — y si el alumno ya tiene pagada la Reserva, la Matrícula se autocompleta directamente con la diferencia.
+  </div>
+
   <!-- Corrección de cuotas ya generadas con arancel viejo -->
   <div class="resumen-card" id="card-correccion-mes" style="margin-top:16px">
     <h3 style="margin:0 0 6px 0"><i class="ti ti-tool"></i>Corregir cuota de un mes ya generado</h3>
@@ -3101,7 +3137,7 @@ Apariente, Luciano | 1003-1004 | V"></textarea>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div class="field">
         <label>Tipo</label>
-        <select id="nuevo-tipo" onchange="toggleMesField(); actualizarBtnConcepto()">
+        <select id="nuevo-tipo" onchange="toggleMesField(); actualizarBtnConcepto(); sugerirMontoConcepto()">
           <option value="Cuota">Cuota</option>
           <option value="Matrícula">Matrícula</option>
           <option value="Reserva de vacante">Reserva de vacante</option>
@@ -3691,6 +3727,7 @@ function switchTab(tab, el){
     actualizarEstadoBorradores();
     previewAranceles();
     renderArancelHistorial();
+    cargarMatriculaForm();
   }
   if(tab==='cobranza'){ renderCobranza(); renderTasasFacturacion(); }
   if(tab==='caja') renderCaja();
@@ -6668,6 +6705,59 @@ function aplicarArancel(tipo){
   previewAranceles();
   renderArancelHistorial();
   showToast(`✅ Arancel guardado · ${actualizados} alumnos actualizados · Se aplica en el próximo cierre de mes`);
+}
+
+// ── Reserva de Vacante y Matrícula del ciclo lectivo ────────────────────────
+const MATRICULA_KEY = 'iscm_matricula_vigente';
+const MATRICULA_DEFAULTS = { reserva: 0, general: 0, ef123: 0 };
+
+function getMatriculaVigente(){
+  const saved = localStorage.getItem(MATRICULA_KEY);
+  if(saved){ try{ return {...MATRICULA_DEFAULTS, ...JSON.parse(saved)}; }catch(e){} }
+  return {...MATRICULA_DEFAULTS};
+}
+
+function cargarMatriculaForm(){
+  const v = getMatriculaVigente();
+  document.getElementById('mat-reserva').value = v.reserva || '';
+  document.getElementById('mat-general').value = v.general || '';
+  document.getElementById('mat-ef123').value = v.ef123 || '';
+  previewMatricula();
+}
+
+function previewMatricula(){
+  const reserva = parseFloat(document.getElementById('mat-reserva').value)||0;
+  const general = parseFloat(document.getElementById('mat-general').value)||0;
+  const ef123   = parseFloat(document.getElementById('mat-ef123').value)||0;
+  document.getElementById('mat-dif-general').textContent = fmt(Math.max(0, general - reserva));
+  document.getElementById('mat-dif-ef123').textContent   = fmt(Math.max(0, ef123 - reserva));
+}
+
+function guardarMatricula(){
+  const reserva = parseFloat(document.getElementById('mat-reserva').value)||0;
+  const general = parseFloat(document.getElementById('mat-general').value)||0;
+  const ef123   = parseFloat(document.getElementById('mat-ef123').value)||0;
+  localStorage.setItem(MATRICULA_KEY, JSON.stringify({reserva, general, ef123}));
+  previewMatricula();
+  showToast('✅ Reserva y Matrícula guardadas');
+}
+
+// Sugiere el monto al elegir "Matrícula" / "Reserva de vacante" en la ficha de un alumno.
+// Si el alumno ya tiene la Reserva pagada, la Matrícula se autocompleta con la diferencia.
+function sugerirMontoConcepto(){
+  const a = alumnos.find(x=>x.id===pagoId);
+  if(!a) return;
+  const tipo = document.getElementById('nuevo-tipo').value;
+  if(tipo!=='Reserva de vacante' && tipo!=='Matrícula') return;
+  const v = getMatriculaVigente();
+  if(tipo==='Reserva de vacante'){
+    document.getElementById('nuevo-monto').value = v.reserva || '';
+  } else {
+    const matriculaGrupo = isEF123(a) ? v.ef123 : v.general;
+    const yaTieneReserva = (a.conceptos||[]).some(c=>c.tipo==='Reserva de vacante' && c.pagado);
+    const sugerido = yaTieneReserva ? Math.max(0, matriculaGrupo - v.reserva) : matriculaGrupo;
+    document.getElementById('nuevo-monto').value = sugerido || '';
+  }
 }
 
 // ── Corrección de cuotas de un mes ya generado con arancel viejo ───────────
