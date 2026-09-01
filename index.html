@@ -1484,7 +1484,11 @@ img, svg{max-width:100%}
       <option value="Hijo prof.">Hijo/a de profesor/a</option>
     </select>
     <button class="btn" onclick="becaLimpiarFiltros()" style="height:34px;font-size:12px"><i class="ti ti-x"></i>Limpiar filtros</button>
+    <button class="btn" onclick="document.getElementById('beca-import-input').click()" style="height:34px;font-size:12px;background:#eef3fc;border-color:#a8c3ed;color:#1a3a6e"><i class="ti ti-upload"></i>Importar</button>
+    <input type="file" id="beca-import-input" accept=".json,.csv,.xlsx,.xls" style="display:none" onchange="becaProcesarImport(this)">
     <button class="btn" onclick="exportarBecasCSV()" style="height:34px;font-size:12px;background:#e8f5ee;border-color:#a8d5b8;color:#1a4d2e"><i class="ti ti-download"></i>Exportar CSV</button>
+    <button class="btn" onclick="exportarBecasExcel()" style="height:34px;font-size:12px;background:#e8f5ee;border-color:#a8d5b8;color:#1a4d2e"><i class="ti ti-download"></i>Exportar Excel</button>
+    <button class="btn" onclick="exportarBecasJSON()" style="height:34px;font-size:12px;background:#e8f5ee;border-color:#a8d5b8;color:#1a4d2e"><i class="ti ti-download"></i>Exportar JSON</button>
   </div>
 
   <!-- Barra edición masiva becas -->
@@ -1492,6 +1496,7 @@ img, svg{max-width:100%}
     <span id="beca-bulk-count" style="font-size:13px">0 seleccionadas</span>
     <button class="btn sm" onclick="becaBulkSelAll()" style="background:rgba(255,255,255,0.15);color:#fff;border-color:rgba(255,255,255,0.3)"><i class="ti ti-checkbox"></i>Seleccionar todas</button>
     <button class="btn sm" onclick="abrirBecaBulkEdit()" style="background:#fff;color:#2d7a4f;border-color:#fff;font-weight:600"><i class="ti ti-edit"></i>Editar seleccionadas</button>
+    <button class="btn sm" onclick="becaBulkEliminar()" style="background:#c0392b;color:#fff;border-color:#c0392b;font-weight:600"><i class="ti ti-trash"></i>Eliminar seleccionadas</button>
     <button class="btn sm" onclick="becaBulkDesel()" style="background:rgba(255,255,255,0.15);color:#fff;border-color:rgba(255,255,255,0.3)"><i class="ti ti-x"></i>Limpiar selección</button>
   </div>
 
@@ -5674,6 +5679,7 @@ function aplicarSaldoFavor(){
   a.saldoFavor = restante > 0.005 ? restante : 0;
   if(a.saldoFavor === 0) delete a.saldoFavor;
   recalcDeuda(a);
+  save();
   // Ocultar banner y actualizar modal
   document.getElementById('pago-favor-banner').style.display = 'none';
   actualizarInfoPago(a);
@@ -5681,6 +5687,7 @@ function aplicarSaldoFavor(){
   renderConceptoList(a);
   document.getElementById('pago-monto').value = a.deuda > 0 ? a.deuda : '';
   pagoResumen();
+  renderAlumnosActual();
   showToast(`✦ Saldo de ${fmt(favor)} aplicado a la deuda`);
 }
 
@@ -5694,7 +5701,7 @@ function eliminarSaldoFavor(){
   const montoAnterior = a.saldoFavor;
   if(!confirm(`¿Confirmas que querés eliminar el saldo a favor de ${fmt(montoAnterior)}? Esta acción no se puede deshacer.`)) return;
   delete a.saldoFavor;
-  guardar();
+  save();
   document.getElementById('pago-favor-banner').style.display = 'none';
   actualizarInfoPago(a);
   pagoResumen();
@@ -6926,6 +6933,282 @@ function exportarBecasCSV(){
   descargarCSV('becas_socioeconomicas.csv', headers, rows);
 }
 
+function exportarBecasJSON(){
+  if(!BECAS_SOCIO.length && !HIJOS_PROF.length){ showToast('No hay becas para exportar','error'); return; }
+  const data = { socio: BECAS_SOCIO, hijos: HIJOS_PROF };
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
+  a.download = 'becas_ISCM.json';
+  a.click();
+  showToast('📥 JSON exportado: becas_ISCM.json');
+}
+
+function exportarBecasExcel(){
+  if(!BECAS_SOCIO.length){ showToast('No hay becas para exportar','error'); return; }
+  function doExport(){
+    const headers = ['Alumno','Año','Carrera','Ciudad','Integrantes','Ingreso total','Vivienda','Transporte','Salud','% aprobado','Beca ant.','¿Paga cuota?','% a aplicar','Observaciones'];
+    const rows = BECAS_SOCIO.map(b=>[
+      b.alumno, b.anio, b.carrera, b.ciudad, b.integrantes||0,
+      b.ingreso||0, b.vivienda, b.transporte, b.salud,
+      Math.round((b.pctAprobado||0)*10000)/100,
+      b.anterior, b.paga,
+      Math.round((b.pctAplicar||0)*10000)/100,
+      b.obs||''
+    ]);
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    ws['!cols'] = [{wch:30},{wch:6},{wch:18},{wch:16},{wch:11},{wch:13},{wch:10},{wch:12},{wch:8},{wch:11},{wch:9},{wch:11},{wch:11},{wch:30}];
+    XLSX.utils.book_append_sheet(wb, ws, 'Becas socioeconómicas');
+    XLSX.writeFile(wb, 'becas_socioeconomicas.xlsx');
+    showToast(`✅ Excel exportado con ${BECAS_SOCIO.length} becas`);
+  }
+  if(typeof XLSX === 'undefined'){
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload = doExport;
+    s.onerror = () => showToast('No se pudo cargar la librería para exportar','error');
+    document.head.appendChild(s);
+  } else {
+    doExport();
+  }
+}
+
+// ── IMPORTAR BECAS (JSON / CSV / Excel) ──────────────────────────
+// Actualiza becas existentes (por nombre de alumno) y agrega las nuevas.
+// Nunca borra becas que ya estén guardadas y no aparezcan en el archivo importado.
+const BECA_CAMPO_ALIAS = {
+  alumno:      ['alumno','nombre','apellido y nombre','apellido nombre'],
+  anio:        ['ano','anio','año','curso'],
+  carrera:     ['carrera'],
+  ciudad:      ['ciudad','localidad'],
+  integrantes: ['integrantes','integrantes grupo familiar','cant integrantes'],
+  ingreso:     ['ingreso total','ingreso','ingresos'],
+  vivienda:    ['vivienda'],
+  transporte:  ['transporte'],
+  salud:       ['salud','obra social'],
+  pctAprobado: ['aprobado','pct aprobado','porcentaje aprobado'],
+  anterior:    ['beca ant','beca anterior','anterior'],
+  paga:        ['paga cuota','paga','paga cuota?'],
+  pctAplicar:  ['aplicar','pct aplicar','a aplicar','porcentaje a aplicar'],
+  obs:         ['observaciones','obs','observacion'],
+};
+
+function becaNormalizarHeader(h){
+  return normalizar(String(h||'')).replace(/[?¿%]/g,'').trim();
+}
+
+function becaParsearPct(v){
+  if(v===null||v===undefined||v==='') return 0;
+  if(typeof v==='string' && v.includes('%')) v = v.replace('%','').replace(',','.');
+  let n = parseFloat(v);
+  if(isNaN(n)) return 0;
+  return n>1 ? n/100 : n;
+}
+
+function becaParsearNum(v){
+  if(v===null||v===undefined||v==='') return 0;
+  if(typeof v==='string') v = v.replace(/\$/g,'').replace(/\./g,'').replace(',','.').trim();
+  const n = parseFloat(v);
+  return isNaN(n) ? 0 : n;
+}
+
+// Convierte una fila genérica (objeto {header: valor}, con headers "humanos"
+// o ya en formato interno) al formato interno de una beca socioeconómica.
+function becaMapearFila(row){
+  // Si ya viene con las claves internas (export JSON), usarlo directo
+  if('alumno' in row || 'pctAplicar' in row){
+    const alumno = String(row.alumno||'').replace(/,/g,'').replace(/\s+/g,' ').trim();
+    if(!alumno) return null;
+    return {
+      alumno,
+      anio: row.anio!==undefined ? String(row.anio) : undefined,
+      carrera: row.carrera,
+      ciudad: row.ciudad,
+      integrantes: row.integrantes!==undefined ? parseInt(row.integrantes)||0 : undefined,
+      ingreso: row.ingreso!==undefined ? becaParsearNum(row.ingreso) : undefined,
+      vivienda: row.vivienda,
+      transporte: row.transporte,
+      salud: row.salud,
+      pctAprobado: row.pctAprobado!==undefined ? becaParsearPct(row.pctAprobado) : undefined,
+      anterior: row.anterior,
+      paga: row.paga,
+      pctAplicar: row.pctAplicar!==undefined ? becaParsearPct(row.pctAplicar) : undefined,
+      obs: row.obs,
+    };
+  }
+  // Si viene con headers "humanos" (CSV/Excel exportado o planilla externa)
+  const porCampo = {};
+  Object.keys(row).forEach(h=>{
+    const hn = becaNormalizarHeader(h);
+    for(const campo in BECA_CAMPO_ALIAS){
+      if(BECA_CAMPO_ALIAS[campo].some(alias=>hn===alias || hn.includes(alias))){
+        if(!(campo in porCampo)) porCampo[campo] = row[h];
+      }
+    }
+  });
+  const alumno = String(porCampo.alumno||'').replace(/,/g,'').replace(/\s+/g,' ').trim();
+  if(!alumno) return null;
+  return {
+    alumno,
+    anio: porCampo.anio!==undefined ? String(porCampo.anio) : undefined,
+    carrera: porCampo.carrera,
+    ciudad: porCampo.ciudad,
+    integrantes: porCampo.integrantes!==undefined ? parseInt(porCampo.integrantes)||0 : undefined,
+    ingreso: porCampo.ingreso!==undefined ? becaParsearNum(porCampo.ingreso) : undefined,
+    vivienda: porCampo.vivienda,
+    transporte: porCampo.transporte,
+    salud: porCampo.salud,
+    pctAprobado: porCampo.pctAprobado!==undefined ? becaParsearPct(porCampo.pctAprobado) : undefined,
+    anterior: porCampo.anterior,
+    paga: porCampo.paga,
+    pctAplicar: porCampo.pctAplicar!==undefined ? becaParsearPct(porCampo.pctAplicar) : undefined,
+    obs: porCampo.obs,
+  };
+}
+
+// Aplica una lista de becas "mapeadas" (formato interno, con campos undefined
+// donde no había dato) contra BECAS_SOCIO: actualiza por nombre si existe,
+// agrega si es nueva. No borra nada que ya estuviera guardado.
+function becaAplicarImport(filas){
+  let actualizadas = 0, agregadas = 0;
+  filas.forEach(f=>{
+    if(!f || !f.alumno) return;
+    const key = nombreKey(f.alumno);
+    const idx = BECAS_SOCIO.findIndex(b=>nombreKey(b.alumno)===key);
+    if(idx>=0){
+      const b = BECAS_SOCIO[idx];
+      Object.keys(f).forEach(campo=>{
+        if(f[campo]!==undefined && f[campo]!==null && f[campo]!=='') b[campo]=f[campo];
+      });
+      actualizadas++;
+    } else {
+      BECAS_SOCIO.push({
+        alumno: f.alumno,
+        anio: f.anio||'1°',
+        carrera: f.carrera||'',
+        ciudad: f.ciudad||'',
+        integrantes: f.integrantes||0,
+        ingreso: f.ingreso||0,
+        vivienda: f.vivienda||'',
+        transporte: f.transporte||'',
+        salud: f.salud||'No',
+        pctAprobado: f.pctAprobado||0,
+        anterior: f.anterior||'',
+        paga: f.paga||'',
+        pctAplicar: f.pctAplicar||0,
+        obs: f.obs||'',
+      });
+      agregadas++;
+    }
+  });
+  if(actualizadas===0 && agregadas===0){
+    showToast('No se encontraron becas válidas para importar','error');
+    return;
+  }
+  becaSave();
+  renderBecas();
+  showToast(`✅ Importación completa: ${actualizadas} actualizada(s), ${agregadas} nueva(s) agregada(s)`);
+}
+
+function becaParsearCSVTexto(texto){
+  // Parser simple de CSV que soporta comillas y comas dentro de campos
+  const filas = [];
+  let fila = [], campo = '', dentroComillas = false;
+  const t = texto.replace(/^\uFEFF/, '');
+  for(let i=0;i<t.length;i++){
+    const c = t[i];
+    if(dentroComillas){
+      if(c === '"'){
+        if(t[i+1] === '"'){ campo += '"'; i++; }
+        else dentroComillas = false;
+      } else campo += c;
+    } else {
+      if(c === '"') dentroComillas = true;
+      else if(c === ','){ fila.push(campo); campo=''; }
+      else if(c === '\n'){ fila.push(campo); filas.push(fila); fila=[]; campo=''; }
+      else if(c === '\r'){ /* ignorar */ }
+      else campo += c;
+    }
+  }
+  if(campo!=='' || fila.length){ fila.push(campo); filas.push(fila); }
+  if(!filas.length) return [];
+  const headers = filas[0];
+  return filas.slice(1).filter(r=>r.some(v=>v!=='')).map(r=>{
+    const obj = {};
+    headers.forEach((h,i)=> obj[h] = r[i]!==undefined ? r[i] : '');
+    return obj;
+  });
+}
+
+function becaProcesarImport(input){
+  const file = input.files[0];
+  if(!file) return;
+  const nombre = file.name.toLowerCase();
+  const ext = nombre.split('.').pop();
+
+  if(ext==='json'){
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const data = JSON.parse(e.target.result);
+        let lista;
+        if(Array.isArray(data)) lista = data;
+        else if(data && Array.isArray(data.socio)) lista = data.socio;
+        else { showToast('El JSON no tiene un formato reconocido','error'); return; }
+        const filas = lista.map(becaMapearFila).filter(Boolean);
+        becaAplicarImport(filas);
+      } catch(err){
+        showToast('Error al leer el JSON: '+err.message, 'error');
+      }
+    };
+    reader.onerror = () => showToast('No se pudo leer el archivo','error');
+    reader.readAsText(file);
+  } else if(ext==='csv'){
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const filasRaw = becaParsearCSVTexto(e.target.result);
+        const filas = filasRaw.map(becaMapearFila).filter(Boolean);
+        becaAplicarImport(filas);
+      } catch(err){
+        showToast('Error al leer el CSV: '+err.message, 'error');
+      }
+    };
+    reader.onerror = () => showToast('No se pudo leer el archivo','error');
+    reader.readAsText(file);
+  } else if(ext==='xlsx' || ext==='xls'){
+    function leer(){
+      const reader = new FileReader();
+      reader.onload = e => {
+        try {
+          const wb = XLSX.read(e.target.result, {type:'array'});
+          const nombreHoja = wb.SheetNames.find(n=>normalizar(n).includes('beca')) || wb.SheetNames[0];
+          const ws = wb.Sheets[nombreHoja];
+          const filasRaw = XLSX.utils.sheet_to_json(ws, {defval:''});
+          const filas = filasRaw.map(becaMapearFila).filter(Boolean);
+          becaAplicarImport(filas);
+        } catch(err){
+          showToast('Error al leer el Excel: '+err.message, 'error');
+        }
+      };
+      reader.onerror = () => showToast('No se pudo leer el archivo','error');
+      reader.readAsArrayBuffer(file);
+    }
+    if(typeof XLSX === 'undefined'){
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      s.onload = leer;
+      s.onerror = () => showToast('No se pudo cargar la librería para leer .xlsx','error');
+      document.head.appendChild(s);
+    } else {
+      leer();
+    }
+  } else {
+    showToast('Formato no soportado. Usá .json, .csv, .xlsx o .xls','error');
+  }
+  input.value = '';
+}
+
 function descargarCSV(nombre, headers, rows){
   const bom = '\uFEFF';
   const csv = bom + [headers, ...rows].map(r=>r.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',')).join('\n');
@@ -8059,6 +8342,23 @@ function becaBulkDesel(){
   becaSeleccionadas.clear();
   document.querySelectorAll('.beca-row-chk').forEach(c=>c.checked=false);
   becaActualizarBulkBar();
+}
+
+function becaBulkEliminar(){
+  if(becaSeleccionadas.size === 0){ showToast('Seleccioná al menos una fila primero','error'); return; }
+  const n = becaSeleccionadas.size;
+  const total = BECAS_SOCIO.length;
+  const msg = n===total
+    ? `¿Eliminar TODAS las becas socioeconómicas (${n})? Esta acción no se puede deshacer.`
+    : `¿Eliminar ${n} beca(s) socioeconómica(s) seleccionada(s)? Esta acción no se puede deshacer.`;
+  if(!confirm(msg)) return;
+  // Ordenar índices de mayor a menor para poder hacer splice sin invalidar posiciones
+  const idxs = [...becaSeleccionadas].sort((a,b)=>b-a);
+  idxs.forEach(idx=>{ if(BECAS_SOCIO[idx]!==undefined) BECAS_SOCIO.splice(idx,1); });
+  becaSeleccionadas.clear();
+  becaSave();
+  renderBecas();
+  showToast(`🗑 ${n} beca(s) eliminada(s)`);
 }
 
 function abrirBecaBulkEdit(){
