@@ -838,6 +838,7 @@ img, svg{max-width:100%}
           <button class="dd-item" id="nav-dd-archivos" onclick="switchTab('archivos',this)"><i class="ti ti-folder"></i>Archivos</button>
           <button class="dd-item" id="nav-dd-debitos" onclick="switchTab('debitos',this)"><i class="ti ti-file-alert"></i>Débitos</button>
           <button class="dd-item" id="nav-dd-resumen-mensual" onclick="switchTab('resumen-mensual',this)"><i class="ti ti-file-text"></i>Resumen Mensual</button>
+          <button class="dd-item" id="nav-dd-impexp-global" onclick="switchTab('impexp-global',this)"><i class="ti ti-database-export"></i>Importar / Exportar todo</button>
         </div>
       </div>
 
@@ -2169,6 +2170,39 @@ Apariente, Luciano | 1003-1004 | V"></textarea>
     <div class="modal-actions">
       <button class="btn" onclick="document.getElementById('modal-import-deb').classList.remove('open')">Cancelar</button>
       <button class="btn primary" id="deb-btn-confirmar-import" style="display:none" onclick="debConfirmarImport()"><i class="ti ti-check"></i>Importar datos</button>
+    </div>
+  </div>
+</div>
+
+<div id="tab-impexp-global" style="display:none">
+  <div style="max-width:900px;margin:0 auto">
+    <h2 style="margin:0 0 4px;font-size:17px;color:#1a1a2e"><i class="ti ti-database-export"></i> Importar / Exportar todo</h2>
+    <p style="font-size:13px;color:#888;margin:0 0 20px">Descargá toda la información del sistema (alumnos, aranceles, caja, becas, bonos, proveedores, conciliación, presupuestos, archivos, etc.) en un único archivo JSON, o restaurala completa desde un backup.</p>
+
+    <!-- EXPORTAR -->
+    <div style="background:#fff;border:1px solid #e0e0d8;border-radius:10px;padding:20px;margin-bottom:20px">
+      <h3 style="margin:0 0 10px;font-size:14px;color:#1a1a2e"><i class="ti ti-download"></i> Exportar</h3>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#444;margin-bottom:14px;cursor:pointer">
+        <input type="checkbox" id="impexp-incluir-archivos" checked style="width:15px;height:15px">
+        Incluir el contenido de los archivos adjuntos (puede tardar más si hay muchos)
+      </label>
+      <button class="btn primary" id="impexp-btn-exportar" onclick="impExpExportar()"><i class="ti ti-file-download"></i> Exportar todo a JSON</button>
+      <div id="impexp-export-status" style="font-size:12px;color:#888;margin-top:10px"></div>
+    </div>
+
+    <!-- IMPORTAR -->
+    <div style="background:#fff;border:1px solid #e0e0d8;border-radius:10px;padding:20px">
+      <h3 style="margin:0 0 10px;font-size:14px;color:#1a1a2e"><i class="ti ti-upload"></i> Importar</h3>
+      <div style="background:#fff3cd;border:1px solid #ffe69c;border-radius:6px;padding:10px 14px;font-size:12px;color:#664d03;margin-bottom:14px">
+        <i class="ti ti-alert-triangle"></i> Al importar se <b>reemplaza toda la información actual (para todos los usuarios)</b> por la del archivo elegido. Esta acción no se puede deshacer. Se recomienda exportar un backup antes de importar.
+      </div>
+      <input type="file" id="impexp-input-file" accept="application/json,.json" style="display:none" onchange="impExpArchivoSeleccionado(this)">
+      <button class="btn" onclick="document.getElementById('impexp-input-file').click()"><i class="ti ti-file-upload"></i> Elegir archivo JSON</button>
+      <span id="impexp-nombre-archivo" style="font-size:12px;color:#666;margin-left:10px"></span>
+      <div id="impexp-import-preview" style="display:none;margin-top:14px;font-size:13px;color:#444;background:#f7f7f2;border-radius:6px;padding:10px 14px"></div>
+      <div id="impexp-import-error" style="display:none;background:#f8d7da;border:1px solid #f5c6cb;border-radius:6px;padding:10px 14px;font-size:12px;color:#721c24;margin-top:10px"></div>
+      <button class="btn danger" id="impexp-btn-importar" style="display:none;margin-top:14px" onclick="impExpConfirmarImport()"><i class="ti ti-alert-triangle"></i> Reemplazar todos los datos con este archivo</button>
+      <div id="impexp-import-status" style="font-size:12px;color:#888;margin-top:10px"></div>
     </div>
   </div>
 </div>
@@ -3720,7 +3754,7 @@ function switchTab(tab, el){
     'caja':'nav-finanzas-group','cobranza':'nav-finanzas-group',
     'presupuestos':'nav-finanzas-group','acuerdos':'nav-finanzas-group',
     'proveedores':'nav-admin-group','bonos':'nav-admin-group','archivos':'nav-admin-group',
-    'resumen-mensual':'nav-admin-group','debitos':'nav-admin-group'
+    'resumen-mensual':'nav-admin-group','debitos':'nav-admin-group','impexp-global':'nav-admin-group'
   };
   const groupId = groups[tab];
   if(groupId){ const g=document.getElementById(groupId); if(g) g.classList.add('active'); }
@@ -3729,7 +3763,7 @@ function switchTab(tab, el){
   // Mostrar/ocultar tabs
   const tabs = ['dashboard','indicadores','alumnos','inactivos','resumen','aranceles','cobranza',
     'caja','acuerdos','becas','proveedores','presupuestos','conciliacion',
-    'resumen-mensual','anios','archivos','asistencias','bonos','debitos'];
+    'resumen-mensual','anios','archivos','asistencias','bonos','debitos','impexp-global'];
   tabs.forEach(t=>{
     const el = document.getElementById('tab-'+t);
     if(el) el.style.display = t===tab?'':'none';
@@ -3758,6 +3792,7 @@ function switchTab(tab, el){
   if(tab==='debitos') debInit();
   if(tab==='asistencias') asistInit();
   if(tab==='bonos'){ bonosInit(); if(typeof bpProfesInit==='function') bpProfesInit(); }
+  if(tab==='impexp-global'){ ['impexp-export-status','impexp-import-status','impexp-import-preview','impexp-import-error'].forEach(id=>{const e=document.getElementById(id); if(e){e.style.display='none'; e.textContent='';} }); const bi=document.getElementById('impexp-btn-importar'); if(bi) bi.style.display='none'; const nf=document.getElementById('impexp-nombre-archivo'); if(nf) nf.textContent=''; const fi=document.getElementById('impexp-input-file'); if(fi) fi.value=''; window._impExpPendiente = null; }
 }
 
 const _ddHideTimers = {};
@@ -16535,5 +16570,205 @@ function bonosPrint(){
   else updateBar();
 })();
 </script>
+<!-- ════════ IMPORTAR / EXPORTAR TODO (Administración) ════════ -->
+<script>
+(function(){
+  // Todas las claves de datos de la app (excluye preferencias puramente locales de UI,
+  // como "recordar usuario" o la última sub-pestaña de bonos abierta).
+  const IMPEXP_KEYS = [
+    'iscm_alumnos_v3',
+    'iscm_mes',
+    'iscm_arancel_draft',
+    'iscm_arancel_vigente',
+    'iscm_matricula_vigente',
+    'iscm_arancel_hist_v1',
+    'iscm_becas_v1',
+    'iscm_caja_v1',
+    'iscm_cobranza',
+    'iscm_conciliacion_v1',
+    'iscm_conc_tasas_v1',
+    'iscm_debitos_v1',
+    'iscm_resumen_mensual_v1',
+    'iscm_anios_v1',
+    'iscm_arch_meta',
+    'iscm_asistencias_v1',
+    'iscm_bonos_v1',
+    'iscm_bono_valor_unitario',
+    'iscm_bonos_profes_v1',
+    'iscm_proveedores_v1',
+    'iscm_prov_hidden_v1',
+    'iscm_presupuestos_v1'
+  ];
+  const ARCH_FILE_PFX_IE = 'iscm_arch_file_';
+
+  function ieSetStatus(id, msg, isError){
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.style.display = msg ? '' : 'none';
+    el.textContent = msg || '';
+    el.style.color = isError ? '#c0392b' : '#888';
+  }
+
+  async function ieLeerClave(key){
+    // Prioriza la nube (Firestore) si está disponible; si no, usa localStorage.
+    if(window._fbReady && window._fb){
+      try{
+        const remoto = await window._fb.get(key);
+        if(remoto !== null && remoto !== undefined) return remoto;
+      }catch(e){ console.warn('impExp: no se pudo leer de la nube', key, e); }
+    }
+    try{
+      const local = localStorage.getItem(key);
+      if(local !== null) return JSON.parse(local);
+    }catch(e){}
+    return null;
+  }
+
+  async function ieEscribirClave(key, value){
+    localStorage.setItem(key, JSON.stringify(value));
+    if(window._fbReady && window._fb){
+      await window._fb.set(key, value);
+    }
+  }
+
+  window.impExpExportar = async function(){
+    const btn = document.getElementById('impexp-btn-exportar');
+    const incluirArchivos = document.getElementById('impexp-incluir-archivos').checked;
+    btn.disabled = true;
+    try{
+      ieSetStatus('impexp-export-status', 'Recopilando datos…', false);
+      const data = {};
+      for(const key of IMPEXP_KEYS){
+        data[key] = await ieLeerClave(key);
+      }
+
+      const archivosFiles = {};
+      if(incluirArchivos && data['iscm_arch_meta'] && Array.isArray(data['iscm_arch_meta'].archivos)){
+        const lista = data['iscm_arch_meta'].archivos;
+        for(let i=0;i<lista.length;i++){
+          const a = lista[i];
+          ieSetStatus('impexp-export-status', `Leyendo archivo adjunto ${i+1} de ${lista.length}…`, false);
+          try{
+            const contenido = await ieLeerClave(ARCH_FILE_PFX_IE + a.id);
+            if(contenido) archivosFiles[a.id] = contenido;
+          }catch(e){ console.warn('impExp: no se pudo leer archivo adjunto', a.id, e); }
+        }
+      }
+
+      const paquete = {
+        app: 'ISCM Gestión de Tesorería',
+        formato: 'iscm-backup-v1',
+        exportadoEl: new Date().toISOString(),
+        incluyeArchivosAdjuntos: incluirArchivos,
+        data: data,
+        archivosAdjuntos: archivosFiles
+      };
+
+      ieSetStatus('impexp-export-status', 'Generando archivo…', false);
+      const blob = new Blob([JSON.stringify(paquete, null, 2)], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const fecha = new Date().toISOString().slice(0,10);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `iscm-backup-${fecha}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      ieSetStatus('impexp-export-status', 'Listo: se descargó el archivo de backup.', false);
+    }catch(e){
+      console.error('impExpExportar error', e);
+      ieSetStatus('impexp-export-status', 'Ocurrió un error al exportar. Revisá la consola.', true);
+    }finally{
+      btn.disabled = false;
+    }
+  };
+
+  window.impExpArchivoSeleccionado = function(input){
+    const file = input.files && input.files[0];
+    document.getElementById('impexp-nombre-archivo').textContent = file ? file.name : '';
+    document.getElementById('impexp-btn-importar').style.display = 'none';
+    ieSetStatus('impexp-import-error', '', false);
+    const preview = document.getElementById('impexp-import-preview');
+    preview.style.display = 'none';
+    preview.innerHTML = '';
+    window._impExpPendiente = null;
+    if(!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(){
+      try{
+        const json = JSON.parse(reader.result);
+        if(!json || typeof json !== 'object' || !json.data){
+          throw new Error('El archivo no tiene el formato esperado (falta "data").');
+        }
+        window._impExpPendiente = json;
+        const claves = Object.keys(json.data).filter(k => json.data[k] !== null && json.data[k] !== undefined);
+        const nArchivos = json.archivosAdjuntos ? Object.keys(json.archivosAdjuntos).length : 0;
+        preview.style.display = '';
+        preview.innerHTML = `
+          <div><b>Exportado el:</b> ${json.exportadoEl ? new Date(json.exportadoEl).toLocaleString('es-AR') : 'desconocido'}</div>
+          <div><b>Secciones de datos encontradas:</b> ${claves.length} de ${IMPEXP_KEYS.length}</div>
+          <div><b>Archivos adjuntos incluidos:</b> ${nArchivos}</div>
+        `;
+        document.getElementById('impexp-btn-importar').style.display = '';
+      }catch(err){
+        ieSetStatus('impexp-import-error', 'No se pudo leer el archivo: ' + err.message, true);
+      }
+    };
+    reader.onerror = function(){
+      ieSetStatus('impexp-import-error', 'No se pudo leer el archivo seleccionado.', true);
+    };
+    reader.readAsText(file);
+  };
+
+  window.impExpConfirmarImport = async function(){
+    const json = window._impExpPendiente;
+    if(!json){ return; }
+    const primeraConf = confirm('Esto va a REEMPLAZAR toda la información actual del sistema (para todos los usuarios) por la del archivo elegido. ¿Continuar?');
+    if(!primeraConf) return;
+    const texto = prompt('Para confirmar, escribí IMPORTAR (en mayúsculas) y aceptá:');
+    if(texto !== 'IMPORTAR'){
+      ieSetStatus('impexp-import-status', 'Importación cancelada.', false);
+      return;
+    }
+
+    const btn = document.getElementById('impexp-btn-importar');
+    btn.disabled = true;
+    try{
+      const claves = Object.keys(json.data);
+      for(let i=0;i<claves.length;i++){
+        const key = claves[i];
+        const value = json.data[key];
+        if(value === null || value === undefined) continue;
+        ieSetStatus('impexp-import-status', `Importando ${i+1} de ${claves.length}: ${key}…`, false);
+        await ieEscribirClave(key, value);
+      }
+
+      if(json.archivosAdjuntos){
+        const ids = Object.keys(json.archivosAdjuntos);
+        if(ids.length && !(window._fbReady && window._fb)){
+          ieSetStatus('impexp-import-status', 'Datos importados. No se pudieron restaurar los archivos adjuntos porque no hay conexión con la nube.', true);
+        }else{
+          for(let i=0;i<ids.length;i++){
+            const id = ids[i];
+            ieSetStatus('impexp-import-status', `Restaurando archivo adjunto ${i+1} de ${ids.length}…`, false);
+            try{ await window._fb.set(ARCH_FILE_PFX_IE + id, json.archivosAdjuntos[id]); }
+            catch(e){ console.warn('impExp: no se pudo restaurar archivo', id, e); }
+          }
+        }
+      }
+
+      ieSetStatus('impexp-import-status', 'Importación completa. Recargando…', false);
+      setTimeout(() => location.reload(), 800);
+    }catch(e){
+      console.error('impExpConfirmarImport error', e);
+      ieSetStatus('impexp-import-status', 'Ocurrió un error durante la importación. Revisá la consola antes de reintentar.', true);
+      btn.disabled = false;
+    }
+  };
+})();
+</script>
+
 </body>
 </html>
