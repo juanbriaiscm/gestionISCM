@@ -1468,7 +1468,7 @@ img, svg{max-width:100%}
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
     <h2 style="margin:0;font-size:17px;color:#1a1a2e"><i class="ti ti-award"></i>Gestión de Becas</h2>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button onclick="abrirModalBecaReset()" class="btn" style="height:36px;font-size:13px;background:#fef3f2;border-color:#fecdca;color:#b42318;font-weight:600"><i class="ti ti-refresh"></i>Reiniciar becas (ciclo nuevo)</button>
+      <button onclick="abrirModalBecaReset()" class="btn" style="height:36px;font-size:13px;background:#fef3f2;border-color:#fecdca;color:#b42318;font-weight:600"><i class="ti ti-refresh"></i>Reiniciar becas socioeconómicas (ciclo nuevo)</button>
       <button onclick="abrirModalBeca()" style="background:#1a1a2e;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-size:13px;cursor:pointer;font-weight:600">Agregar alumno becado</button>
     </div>
   </div>
@@ -1761,9 +1761,9 @@ img, svg{max-width:100%}
 <!-- MODAL REINICIO DE BECAS (fin de ciclo lectivo) -->
 <div class="overlay" id="modal-beca-reset" style="display:none;align-items:center;justify-content:center">
   <div class="modal" style="max-width:480px">
-    <h2><i class="ti ti-refresh"></i> Reiniciar becas para el próximo ciclo</h2>
+    <h2><i class="ti ti-refresh"></i> Reiniciar becas socioeconómicas para el próximo ciclo</h2>
     <p style="font-size:13px;color:#555;margin-bottom:16px">
-      Esto borra <strong>todas</strong> las becas socioeconómicas y los hijos/as de profesores/as cargados (<span id="beca-reset-total">0</span> en total), para que cada familia tenga que volver a pedirla en el ciclo lectivo nuevo. No afecta aranceles, bonos ni el resto de la información de los alumnos.
+      Esto borra <strong>todas</strong> las becas socioeconómicas cargadas (<span id="beca-reset-total">0</span> en total), para que cada familia tenga que volver a pedirla en el ciclo lectivo nuevo. No afecta a los hijos/as de profesores/as, ni aranceles, bonos o el resto de la información de los alumnos.
     </p>
 
     <div id="beca-reset-programado-box" style="display:none;background:#eef3fc;border:1px solid #a8c3ed;border-radius:6px;padding:10px 14px;font-size:12px;color:#1a3a6e;margin-bottom:16px">
@@ -8930,7 +8930,6 @@ function becaSave(){
 }
 
 // ── REINICIO DE BECAS (fin de ciclo lectivo) ──────────────────────
-const BECA_RESET_KEY = 'iscm_becas_reset_fecha';
 
 function becaFormatearFecha(iso){
   const [y,m,d] = iso.split('-');
@@ -8938,8 +8937,8 @@ function becaFormatearFecha(iso){
 }
 
 function abrirModalBecaReset(){
-  document.getElementById('beca-reset-total').textContent = (BECAS_SOCIO.length + HIJOS_PROF.length);
-  const fechaProgramada = localStorage.getItem(BECA_RESET_KEY);
+  document.getElementById('beca-reset-total').textContent = BECAS_SOCIO.length;
+  const fechaProgramada = localStorage.getItem('iscm_becas_reset_fecha');
   const box = document.getElementById('beca-reset-programado-box');
   if(fechaProgramada){
     box.style.display = 'block';
@@ -8954,52 +8953,51 @@ function abrirModalBecaReset(){
 function becaProgramarReset(){
   const fecha = document.getElementById('beca-reset-fecha').value;
   if(!fecha){ showToast('Elegí una fecha primero','error'); return; }
-  localStorage.setItem(BECA_RESET_KEY, fecha);
-  if(window._fb) window._fb.set(BECA_RESET_KEY, fecha).catch(()=>{});
+  localStorage.setItem('iscm_becas_reset_fecha', fecha);
+  if(window._fb) window._fb.set('iscm_becas_reset_fecha', fecha).catch(()=>{});
   showToast(`📅 Reinicio de becas programado para el ${becaFormatearFecha(fecha)}`);
   document.getElementById('modal-beca-reset').style.display = 'none';
 }
 
 function becaCancelarProgramacion(){
-  localStorage.removeItem(BECA_RESET_KEY);
-  if(window._fb) window._fb.set(BECA_RESET_KEY, null).catch(()=>{});
+  localStorage.removeItem('iscm_becas_reset_fecha');
+  if(window._fb) window._fb.set('iscm_becas_reset_fecha', null).catch(()=>{});
   showToast('Programación de reinicio cancelada');
   document.getElementById('beca-reset-programado-box').style.display = 'none';
 }
 
 function becaResetearAhora(){
-  const total = BECAS_SOCIO.length + HIJOS_PROF.length;
-  if(total === 0){ showToast('No hay becas cargadas para borrar','error'); document.getElementById('modal-beca-reset').style.display='none'; return; }
-  const conf = confirm(`⚠️ Esto va a borrar TODAS las becas socioeconómicas e hijos/as de profesores/as cargados (${total} en total), para que se vuelvan a pedir en el ciclo nuevo.\n\nEsta acción no se puede deshacer. ¿Confirmás?`);
+  const total = BECAS_SOCIO.length;
+  if(total === 0){ showToast('No hay becas socioeconómicas cargadas para borrar','error'); document.getElementById('modal-beca-reset').style.display='none'; return; }
+  const conf = confirm(`⚠️ Esto va a borrar TODAS las becas socioeconómicas cargadas (${total} en total), para que se vuelvan a pedir en el ciclo nuevo. Los hijos/as de profesores/as NO se tocan.\n\nEsta acción no se puede deshacer. ¿Confirmás?`);
   if(!conf) return;
   BECAS_SOCIO.length = 0;
-  HIJOS_PROF.length = 0;
-  localStorage.removeItem(BECA_RESET_KEY);
+  localStorage.removeItem('iscm_becas_reset_fecha');
   becaSave();
-  if(window._fb) window._fb.set(BECA_RESET_KEY, null).catch(()=>{});
+  if(window._fb) window._fb.set('iscm_becas_reset_fecha', null).catch(()=>{});
   renderBecas();
   document.getElementById('modal-beca-reset').style.display = 'none';
-  showToast(`🗑 Se borraron ${total} beca(s). Listo para el ciclo nuevo.`);
+  showToast(`🗑 Se borraron ${total} beca(s) socioeconómica(s). Listo para el ciclo nuevo.`);
 }
 
 // Se fija si hay un reinicio programado y si ya se cumplió la fecha; si es así, lo ejecuta.
 // Se llama al cargar la página (dato local) y de nuevo cuando llega el dato remoto de Firebase,
 // porque el sistema no tiene un servidor propio corriendo: el chequeo solo pasa cuando alguien abre el sistema.
+// Solo afecta becas socioeconómicas — hijos/as de profesores/as no se tocan.
 function becaVerificarResetProgramado(){
   try{
-    const fecha = localStorage.getItem(BECA_RESET_KEY);
+    const fecha = localStorage.getItem('iscm_becas_reset_fecha');
     if(!fecha) return;
     const hoy = new Date();
     const hoyISO = hoy.getFullYear() + '-' + String(hoy.getMonth()+1).padStart(2,'0') + '-' + String(hoy.getDate()).padStart(2,'0');
     if(hoyISO < fecha) return;
-    const total = BECAS_SOCIO.length + HIJOS_PROF.length;
+    const total = BECAS_SOCIO.length;
     BECAS_SOCIO.length = 0;
-    HIJOS_PROF.length = 0;
-    localStorage.removeItem(BECA_RESET_KEY);
+    localStorage.removeItem('iscm_becas_reset_fecha');
     becaSave();
-    if(window._fb) window._fb.set(BECA_RESET_KEY, null).catch(()=>{});
+    if(window._fb) window._fb.set('iscm_becas_reset_fecha', null).catch(()=>{});
     if(typeof renderBecas === 'function' && document.getElementById('tab-becas')) renderBecas();
-    setTimeout(()=>{ showToast(`📅 Reinicio automático de becas: se borraron ${total} beca(s) (programado para el ${becaFormatearFecha(fecha)})`); }, 1000);
+    setTimeout(()=>{ showToast(`📅 Reinicio automático de becas: se borraron ${total} beca(s) socioeconómica(s) (programado para el ${becaFormatearFecha(fecha)})`); }, 1000);
   } catch(e){ console.warn('becaVerificarResetProgramado error', e); }
 }
 
