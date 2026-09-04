@@ -470,7 +470,7 @@ img, svg{max-width:100%}
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-app.js";
   import {
     getFirestore, doc, getDoc, setDoc, onSnapshot,
-    collection, getDocs, deleteDoc, query, orderBy, limit, startAfter, addDoc
+    collection, getDocs, deleteDoc, query, orderBy, limit, startAfter, addDoc, writeBatch
   } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-firestore.js";
   import {
     getAuth, onAuthStateChanged, setPersistence, browserSessionPersistence,
@@ -600,6 +600,7 @@ img, svg{max-width:100%}
   // automáticamente sin tener que tocar este código.
   // ══════════════════════════════════════════════════════════════════════
   const BACKUPS_RETENCION = 30; // cuántas copias diarias conservar
+  const BK_LOTE = 400; // escrituras por writeBatch (límite real de Firestore: 500)
 
   function _bkFechaHoy() {
     const d = new Date();
@@ -623,7 +624,10 @@ img, svg{max-width:100%}
     return mapa;
   }
 
-  // Crea (o sobreescribe) el backup del día de hoy.
+  // Crea (o sobreescribe) el backup del día de hoy. Para no toparse con el
+  // límite de 1 MiB por documento de Firestore, el doc "backups/{fecha}"
+  // sólo guarda metadatos livianos, y cada clave de "datos" se guarda como
+  // un documento aparte en la subcolección "backups/{fecha}/claves".
   async function bkCrear(motivo) {
     const datos = await bkLeerColeccionDatos();
     const claves = Object.keys(datos);
@@ -634,15 +638,23 @@ img, svg{max-width:100%}
       ts: Date.now(),
       usuario: (window.sesionActual && window.sesionActual.user) || auth.currentUser?.email || 'desconocido',
       motivo: motivo || 'automático',
-      cantidadClaves: claves.length,
-      datos
+      cantidadClaves: claves.length
     };
     await setDoc(doc(db, "backups", fecha), meta);
+    for (let i = 0; i < claves.length; i += BK_LOTE) {
+      const lote = writeBatch(db);
+      claves.slice(i, i + BK_LOTE).forEach(key => {
+        lote.set(doc(db, "backups", fecha, "claves", key), { v: datos[key] });
+      });
+      await lote.commit();
+    }
     await bkAplicarRetencion();
     return meta;
   }
 
-  // Borra backups más viejos que los últimos N (por fecha, ordenado ascendente).
+  // Borra backups más viejos que los últimos N (por fecha, ordenado ascendente),
+  // incluyendo los documentos de su subcolección "claves" (borrar el doc de
+  // arriba NO borra solo la subcolección en Firestore, hay que hacerlo aparte).
   async function bkAplicarRetencion() {
     try {
       const snap = await getDocs(query(collection(db, "backups"), orderBy("fecha", "asc")));
@@ -651,7 +663,18 @@ img, svg{max-width:100%}
       if (sobran <= 0) return;
       const aBorrar = ids.slice(0, sobran);
       for (const id of aBorrar) {
-        await deleteDoc(doc(db, "backups", id)).catch(e => console.warn("bkAplicarRetencion: no se pudo borrar", id, e));
+        try {
+          const clavesSnap = await getDocs(collection(db, "backups", id, "claves"));
+          const idsClaves = clavesSnap.docs.map(d => d.id);
+          for (let i = 0; i < idsClaves.length; i += BK_LOTE) {
+            const lote = writeBatch(db);
+            idsClaves.slice(i, i + BK_LOTE).forEach(k => lote.delete(doc(db, "backups", id, "claves", k)));
+            await lote.commit();
+          }
+          await deleteDoc(doc(db, "backups", id));
+        } catch (e) {
+          console.warn("bkAplicarRetencion: no se pudo borrar", id, e);
+        }
       }
     } catch (e) {
       console.warn("bkAplicarRetencion error", e);
@@ -690,14 +713,29 @@ img, svg{max-width:100%}
     });
   }
 
+  // Lee las claves de un backup puntual. Soporta el formato nuevo (un doc
+  // por clave en la subcolección "claves") y, por compatibilidad, el
+  // formato viejo (todo embebido en el propio doc "backups/{fecha}"), para
+  // que los backups generados antes de este cambio se sigan pudiendo usar.
+  async function bkLeerClaves(fecha) {
+    const clavesSnap = await getDocs(collection(db, "backups", fecha, "claves"));
+    if (!clavesSnap.empty) {
+      const mapa = {};
+      clavesSnap.forEach(d => { mapa[d.id] = d.data().v; });
+      return mapa;
+    }
+    const snap = await getDoc(doc(db, "backups", fecha));
+    if (!snap.exists()) throw new Error('No existe un backup con esa fecha.');
+    return (snap.data() || {}).datos || {};
+  }
+
   // Restaura un backup puntual: sobreescribe cada clave en "datos" con el
   // valor guardado en ese backup. No borra claves nuevas creadas después
   // del backup (evita perder datos de módulos agregados con posterioridad).
   async function bkRestaurar(fecha) {
-    const snap = await getDoc(doc(db, "backups", fecha));
-    if (!snap.exists()) throw new Error('No existe un backup con esa fecha.');
-    const { datos } = snap.data();
-    const claves = Object.keys(datos || {});
+    const datos = await bkLeerClaves(fecha);
+    const claves = Object.keys(datos);
+    if (!claves.length) throw new Error('No existe un backup con esa fecha.');
     for (const key of claves) {
       await setDoc(doc(db, "datos", key), { v: datos[key] });
     }
@@ -709,12 +747,12 @@ img, svg{max-width:100%}
 
   // Descarga un backup puntual como archivo .json, igual que "Descargar copia".
   async function bkDescargar(fecha) {
-    const snap = await getDoc(doc(db, "backups", fecha));
-    if (!snap.exists()) throw new Error('No existe un backup con esa fecha.');
-    const raw = snap.data();
-    const legible = { fecha: raw.fecha, usuario: raw.usuario, motivo: raw.motivo, datos: {} };
-    Object.keys(raw.datos || {}).forEach(k => {
-      try { legible.datos[k] = JSON.parse(raw.datos[k]); } catch (e) { legible.datos[k] = raw.datos[k]; }
+    const datos = await bkLeerClaves(fecha);
+    const metaSnap = await getDoc(doc(db, "backups", fecha));
+    const raw = metaSnap.exists() ? metaSnap.data() : {};
+    const legible = { fecha, usuario: raw.usuario, motivo: raw.motivo, datos: {} };
+    Object.keys(datos).forEach(k => {
+      try { legible.datos[k] = JSON.parse(datos[k]); } catch (e) { legible.datos[k] = datos[k]; }
     });
     const blob = new Blob([JSON.stringify(legible, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
