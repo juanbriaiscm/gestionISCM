@@ -796,7 +796,7 @@ img, svg{max-width:100%}
 
       <!-- General -->
       <div class="tab-group" onmouseenter="ddShow('dd-general')" onmouseleave="ddHide('dd-general')">
-        <button class="tab tab-group-btn" id="nav-dashboard"><i class="ti ti-layout-dashboard"></i>General</button>
+        <button class="tab tab-group-btn" id="nav-dashboard" onclick="ddToggle('dd-general',event)"><i class="ti ti-layout-dashboard"></i>General</button>
         <div class="tab-dropdown" id="dd-general">
           <button class="dd-item" id="nav-dd-dashboard" onclick="switchTab('dashboard',this)"><i class="ti ti-layout-dashboard"></i>Resumen</button>
           <button class="dd-item" id="nav-dd-indicadores" onclick="switchTab('indicadores',this)"><i class="ti ti-chart-bar"></i>Indicadores</button>
@@ -806,7 +806,7 @@ img, svg{max-width:100%}
 
       <!-- Alumnos -->
       <div class="tab-group" onmouseenter="ddShow('dd-alumnos')" onmouseleave="ddHide('dd-alumnos')">
-        <button class="tab tab-group-btn" id="nav-alumnos-group"><i class="ti ti-users"></i>Alumnos</button>
+        <button class="tab tab-group-btn" id="nav-alumnos-group" onclick="ddToggle('dd-alumnos',event)"><i class="ti ti-users"></i>Alumnos</button>
         <div class="tab-dropdown" id="dd-alumnos">
           <button class="dd-item" id="nav-dd-alumnos" onclick="switchTab('alumnos',this)"><i class="ti ti-users"></i>Alumnos actuales</button>
           <button class="dd-item" id="nav-dd-inactivos" onclick="switchTab('inactivos',this)"><i class="ti ti-user-off"></i>Inactivos</button>
@@ -818,7 +818,7 @@ img, svg{max-width:100%}
 
       <!-- Finanzas -->
       <div class="tab-group" onmouseenter="ddShow('dd-finanzas')" onmouseleave="ddHide('dd-finanzas')">
-        <button class="tab tab-group-btn" id="nav-finanzas-group"><i class="ti ti-adjustments-dollar"></i>Finanzas</button>
+        <button class="tab tab-group-btn" id="nav-finanzas-group" onclick="ddToggle('dd-finanzas',event)"><i class="ti ti-adjustments-dollar"></i>Finanzas</button>
         <div class="tab-dropdown" id="dd-finanzas">
           <button class="dd-item" id="nav-dd-aranceles" onclick="switchTab('aranceles',this)"><i class="ti ti-receipt-2"></i>Aranceles</button>
           <button class="dd-item" id="nav-dd-conciliacion" onclick="switchTab('conciliacion',this)"><i class="ti ti-building-bank"></i>Conciliación</button>
@@ -831,7 +831,7 @@ img, svg{max-width:100%}
 
       <!-- Administración -->
       <div class="tab-group" onmouseenter="ddShow('dd-admin')" onmouseleave="ddHide('dd-admin')">
-        <button class="tab tab-group-btn" id="nav-admin-group"><i class="ti ti-building"></i>Administración</button>
+        <button class="tab tab-group-btn" id="nav-admin-group" onclick="ddToggle('dd-admin',event)"><i class="ti ti-building"></i>Administración</button>
         <div class="tab-dropdown" id="dd-admin">
           <button class="dd-item" id="nav-dd-proveedores" onclick="switchTab('proveedores',this)"><i class="ti ti-truck"></i>Proveedores</button>
           <button class="dd-item" id="nav-dd-bonos" onclick="switchTab('bonos',this);bpProfesInit()"><i class="ti ti-ticket"></i>Bonos</button>
@@ -3769,6 +3769,11 @@ function dashRefrescarSiVisible(){
 
 function switchTab(tab, el){
   tabActual = tab;
+  // Cerrar cualquier dropdown abierto (necesario en móvil / touch)
+  document.querySelectorAll('.tab-dropdown.open').forEach(dd=>{
+    if(_ddHideTimers[dd.id]){ clearTimeout(_ddHideTimers[dd.id]); delete _ddHideTimers[dd.id]; }
+    dd.classList.remove('open');
+  });
   // Quitar activo de todos los items del dropdown
   document.querySelectorAll('.dd-item').forEach(t=>t.classList.remove('active'));
   document.querySelectorAll('.tab-group-btn').forEach(t=>t.classList.remove('active'));
@@ -3850,6 +3855,25 @@ function ddHide(id){
     delete _ddHideTimers[id];
   }, 250);
 }
+// Abrir/cerrar un dropdown con tap (móvil / touch). Cierra los demás abiertos.
+function ddToggle(id, ev){
+  if(ev){ ev.preventDefault(); ev.stopPropagation(); }
+  const d=document.getElementById(id); if(!d) return;
+  const yaAbierto = d.classList.contains('open');
+  document.querySelectorAll('.tab-dropdown.open').forEach(el=>{
+    if(_ddHideTimers[el.id]){ clearTimeout(_ddHideTimers[el.id]); delete _ddHideTimers[el.id]; }
+    el.classList.remove('open');
+  });
+  if(!yaAbierto){ ddShow(id); }
+}
+// Cerrar dropdowns al tocar/clic fuera de la barra de pestañas
+document.addEventListener('click', function(e){
+  if(e.target.closest('.tab-group')) return;
+  document.querySelectorAll('.tab-dropdown.open').forEach(el=>{
+    if(_ddHideTimers[el.id]){ clearTimeout(_ddHideTimers[el.id]); delete _ddHideTimers[el.id]; }
+    el.classList.remove('open');
+  });
+});
 function sidenavToggle(){}
 function changePage(d){page+=d;renderTable();}
 // ── Exportar contactos para WhatsApp (CSV internacional Argentina) ──────────
