@@ -470,7 +470,7 @@ img, svg{max-width:100%}
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-app.js";
   import {
     getFirestore, doc, getDoc, setDoc, onSnapshot,
-    collection, getDocs, deleteDoc, query, orderBy
+    collection, getDocs, deleteDoc, query, orderBy, limit, startAfter, addDoc
   } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-firestore.js";
   import {
     getAuth, onAuthStateChanged, setPersistence, browserSessionPersistence,
@@ -504,7 +504,95 @@ img, svg{max-width:100%}
   setPersistence(auth, browserSessionPersistence).catch(e => console.warn("setPersistence error", e));
 
   // ══════════════════════════════════════════════════════════════════════
-  // ── COPIAS DE SEGURIDAD AUTOMÁTICAS ─────────────────────────────────────
+  // ── AUDITORÍA DE CAMBIOS ─────────────────────────────────────────────────
+  // Cada vez que se guarda algo en "datos" (o sea, casi cualquier acción de
+  // guardar en toda la app), queda un registro de quién, cuándo y qué cambió
+  // en la colección "auditoria". No modifica ni pisa nada existente: es
+  // "append-only" (las reglas de Firestore bloquean update/delete sobre ella).
+  // ══════════════════════════════════════════════════════════════════════
+
+  function _auditEtiqueta(obj) {
+    if (!obj || typeof obj !== 'object') return String(obj);
+    const campos = ['nombre', 'alumno', 'alumnoNombre', 'docente', 'name', 'titular', 'concepto', 'descripcion', 'proveedor'];
+    for (const c of campos) { if (obj[c]) return String(obj[c]); }
+    return obj.id ? ('id ' + obj.id) : '(sin nombre)';
+  }
+
+  function _auditListaCorta(etiquetas, maximo) {
+    maximo = maximo || 5;
+    if (etiquetas.length <= maximo) return etiquetas.join(', ');
+    return etiquetas.slice(0, maximo).join(', ') + ` (+${etiquetas.length - maximo} más)`;
+  }
+
+  // Compara el valor anterior contra el nuevo y arma una descripción legible
+  // de qué cambió. Detecta especialmente el caso más importante: elementos
+  // de un array (becas, alumnos, bonos, etc.) que se agregaron, borraron o
+  // modificaron, identificándolos por nombre cuando es posible.
+  function _auditResumenCambio(anterior, nuevo) {
+    if (anterior === null && nuevo !== null) {
+      return 'Creado por primera vez' + (Array.isArray(nuevo) ? ` (${nuevo.length} elementos)` : '');
+    }
+    if (anterior !== null && nuevo === null) return 'Vaciado por completo';
+    if (Array.isArray(anterior) && Array.isArray(nuevo)) {
+      const primerConId = anterior.find(x => x && typeof x === 'object' && 'id' in x) || nuevo.find(x => x && typeof x === 'object' && 'id' in x);
+      if (primerConId) {
+        const mapAnt = new Map(anterior.filter(x => x && x.id != null).map(x => [x.id, x]));
+        const mapNuevo = new Map(nuevo.filter(x => x && x.id != null).map(x => [x.id, x]));
+        const eliminados = [...mapAnt.keys()].filter(id => !mapNuevo.has(id)).map(id => _auditEtiqueta(mapAnt.get(id)));
+        const agregados = [...mapNuevo.keys()].filter(id => !mapAnt.has(id)).map(id => _auditEtiqueta(mapNuevo.get(id)));
+        const modificados = [...mapNuevo.keys()].filter(id => mapAnt.has(id) && JSON.stringify(mapAnt.get(id)) !== JSON.stringify(mapNuevo.get(id))).map(id => _auditEtiqueta(mapNuevo.get(id)));
+        const partes = [];
+        if (eliminados.length) partes.push('🗑 eliminado: ' + _auditListaCorta(eliminados));
+        if (agregados.length) partes.push('➕ agregado: ' + _auditListaCorta(agregados));
+        if (modificados.length) partes.push('✏️ modificado: ' + _auditListaCorta(modificados));
+        return partes.length ? partes.join(' · ') : 'Guardado sin cambios detectables';
+      }
+      if (anterior.length !== nuevo.length) {
+        return anterior.length > nuevo.length
+          ? `${anterior.length - nuevo.length} elemento(s) eliminado(s) (${anterior.length} → ${nuevo.length})`
+          : `${nuevo.length - anterior.length} elemento(s) agregado(s) (${anterior.length} → ${nuevo.length})`;
+      }
+      return JSON.stringify(anterior) === JSON.stringify(nuevo) ? 'Guardado sin cambios' : 'Modificado (mismo tamaño)';
+    }
+    if (JSON.stringify(anterior) === JSON.stringify(nuevo)) return 'Guardado sin cambios';
+    return 'Modificado';
+  }
+
+  // Registra una entrada de auditoría. Nunca debe frenar ni hacer fallar
+  // el guardado real: se llama después de que setDoc ya tuvo éxito.
+  async function auditRegistrar(clave, anteriorStr, nuevoStr) {
+    let anterior = null, nuevo = null;
+    try { anterior = anteriorStr ? JSON.parse(anteriorStr) : null; } catch (e) { /* valor no-JSON, se ignora en el diff */ }
+    try { nuevo = nuevoStr ? JSON.parse(nuevoStr) : null; } catch (e) { /* ídem */ }
+    const entrada = {
+      ts: Date.now(),
+      clave,
+      usuario: (window.sesionActual && window.sesionActual.user) || auth.currentUser?.email || 'desconocido',
+      rol: (window.sesionActual && window.sesionActual.rol) || null,
+      resumen: _auditResumenCambio(anterior, nuevo)
+    };
+    try {
+      await addDoc(collection(db, "auditoria"), entrada);
+    } catch (e) {
+      // Igual que con el backup automático: permission-denied es esperable
+      // si el rol conectado no puede escribir en /auditoria.
+      if (e && e.code !== 'permission-denied') console.error("auditRegistrar error", clave, e);
+    }
+  }
+
+  // Trae las últimas entradas de auditoría, más nuevas primero. Si se pasa
+  // "desde" (el último doc de la página anterior), sigue paginando hacia atrás.
+  async function auditListar(desde) {
+    const partes = [collection(db, "auditoria"), orderBy("ts", "desc")];
+    if (desde) partes.push(startAfter(desde));
+    partes.push(limit(100));
+    const snap = await getDocs(query(...partes));
+    return { entradas: snap.docs.map(d => d.data()), ultimoDoc: snap.docs[snap.docs.length - 1] || null, hayMas: snap.docs.length === 100 };
+  }
+
+  window._fbAuditoria = { registrar: auditRegistrar, listar: auditListar };
+
+
   // Respalda TODA la colección "datos" (todo lo que usa fbGet/fbSet en el
   // resto de la app) a un documento diario en la colección "backups".
   // No depende de conocer las claves de antemano: lee la colección entera,
@@ -739,12 +827,25 @@ img, svg{max-width:100%}
     if (window._fbReady) return; // evitar reconfigurar si el callback se dispara de nuevo
 
     async function fbSet(key, value) {
+      // Leemos el valor anterior para poder auditar qué cambió. Este paso
+      // extra agrega una lectura antes de cada guardado, pero es lo que
+      // permite saber "quién borró qué" sin tener que tocar los ~560
+      // lugares del código que llaman a _fb.set.
+      let anteriorStr = null;
       try {
-        await setDoc(doc(db, "datos", key), { v: JSON.stringify(value) });
+        const prev = await getDoc(doc(db, "datos", key));
+        if (prev.exists()) anteriorStr = prev.data().v;
+      } catch (e) {
+        console.warn("fbSet: no se pudo leer el valor anterior (auditoría incompleta para esta escritura)", key, e);
+      }
+      const nuevoStr = JSON.stringify(value);
+      try {
+        await setDoc(doc(db, "datos", key), { v: nuevoStr });
       } catch(e) {
         console.error("fbSet error", key, e);
         throw e; // re-lanzar: quien llama (save()) tiene que enterarse del fallo
       }
+      auditRegistrar(key, anteriorStr, nuevoStr); // no bloquea el guardado si falla
     }
 
     // Lee un valor JSON desde Firestore
@@ -924,6 +1025,13 @@ img, svg{max-width:100%}
       onmouseenter="this.style.color='#fff';this.style.background='rgba(255,255,255,0.1)'"
       onmouseleave="this.style.color='rgba(255,255,255,0.55)';this.style.background='none'">
       <i class="ti ti-shield-lock" style="font-size:17px"></i></button>
+
+    <!-- Icono: Auditoría -->
+    <button id="btn-auditoria" onclick="openAuditoria()" title="Auditoría de cambios"
+      style="display:none;background:none;border:none;color:rgba(255,255,255,0.55);cursor:pointer;padding:6px;border-radius:6px;line-height:1;transition:color .15s,background .15s"
+      onmouseenter="this.style.color='#fff';this.style.background='rgba(255,255,255,0.1)'"
+      onmouseleave="this.style.color='rgba(255,255,255,0.55)';this.style.background='none'">
+      <i class="ti ti-list-search" style="font-size:17px"></i></button>
 
     <!-- Icono: Mi cuenta -->
     <button onclick="openMiCuenta()" id="btn-mi-cuenta" title="Mi cuenta"
@@ -13299,6 +13407,23 @@ function mostrarPPError(msg){
   </div>
 </div>
 
+<!-- Modal Auditoría de cambios -->
+<div class="overlay" id="modal-auditoria">
+  <div class="modal" style="max-width:680px">
+    <h2><i class="ti ti-list-search"></i>Auditoría de cambios</h2>
+    <div style="font-size:12px;color:#888;margin-bottom:10px">
+      Cada guardado en el sistema queda registrado acá: quién, cuándo y qué cambió. No se puede editar ni borrar.
+    </div>
+    <input id="audit-filtro" placeholder="Filtrar por usuario, módulo o texto..." oninput="renderAuditoriaFiltrado()"
+      style="width:100%;height:36px;padding:0 10px;border-radius:6px;border:1px solid #d0d0c8;font-size:13px;margin-bottom:10px">
+    <div id="audit-lista" style="max-height:400px;overflow:auto"></div>
+    <div class="modal-actions">
+      <button class="btn" style="margin-right:auto" onclick="auditoriaCargarMas()"><i class="ti ti-chevron-down"></i>Cargar más antiguas</button>
+      <button class="btn" onclick="closeModal('modal-auditoria')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── LOGIN ──────────────────────────────────────────────────────────────
 (function(){
@@ -13390,6 +13515,8 @@ function loginOk(silent=false){
   if(btnU) btnU.style.display = (sesionActual.rol==='superadmin') ? '' : 'none';
   const btnBk = document.getElementById('btn-backups');
   if(btnBk) btnBk.style.display = (sesionActual.rol==='superadmin'||sesionActual.rol==='admin') ? '' : 'none';
+  const btnAud = document.getElementById('btn-auditoria');
+  if(btnAud) btnAud.style.display = (sesionActual.rol==='superadmin') ? '' : 'none';
   const btnMC = document.getElementById('btn-mi-cuenta');
   if(btnMC) btnMC.style.display = '';
   const mesLabel = document.getElementById('mes-label');
@@ -13620,6 +13747,62 @@ async function backupRestaurarUI(fecha){
     console.error('backupRestaurarUI', e);
     showToast('No se pudo restaurar ese backup', 'error');
   }
+}
+
+// ── Auditoría de cambios (solo superadmin) ───────────────────────────────
+let _auditEntradas = [];
+let _auditUltimoDoc = null;
+let _auditHayMas = true;
+
+async function openAuditoria(){
+  if(!sesionActual || sesionActual.rol !== 'superadmin' || !window._fbAuditoria) return;
+  _auditEntradas = []; _auditUltimoDoc = null; _auditHayMas = true;
+  document.getElementById('audit-filtro').value = '';
+  document.getElementById('modal-auditoria').classList.add('open');
+  await auditoriaCargarMas();
+}
+
+function _auditFechaHora(ts){
+  const d = new Date(ts);
+  return d.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'}) + ' ' +
+         d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
+}
+
+async function auditoriaCargarMas(){
+  if(!_auditHayMas) return;
+  const el = document.getElementById('audit-lista');
+  if(!_auditEntradas.length) el.innerHTML = '<div style="color:#aaa;font-size:13px;text-align:center;padding:12px">Cargando...</div>';
+  try{
+    const { entradas, ultimoDoc, hayMas } = await window._fbAuditoria.listar(_auditUltimoDoc);
+    _auditEntradas = _auditEntradas.concat(entradas);
+    _auditUltimoDoc = ultimoDoc;
+    _auditHayMas = hayMas;
+    renderAuditoriaFiltrado();
+  }catch(e){
+    console.error('auditoriaCargarMas', e);
+    el.innerHTML = '<div style="color:#c0392b;font-size:13px;text-align:center;padding:12px">No se pudo cargar la auditoría.</div>';
+  }
+}
+
+function renderAuditoriaFiltrado(){
+  const el = document.getElementById('audit-lista');
+  const q = (document.getElementById('audit-filtro').value||'').toLowerCase().trim();
+  const filtradas = q
+    ? _auditEntradas.filter(e => (e.usuario+' '+e.clave+' '+e.resumen).toLowerCase().includes(q))
+    : _auditEntradas;
+  if(!filtradas.length){
+    el.innerHTML = '<div style="color:#aaa;font-size:13px;text-align:center;padding:12px">Sin resultados.</div>';
+    return;
+  }
+  el.innerHTML = filtradas.map(e => `
+    <div style="padding:9px 4px;border-bottom:1px solid #f0f0e8">
+      <div style="display:flex;justify-content:space-between;gap:10px;font-size:11px;color:#888;margin-bottom:2px">
+        <span>${_auditFechaHora(e.ts)}</span>
+        <span><b>${e.usuario||'—'}</b>${e.rol?' · '+e.rol:''} · <code>${e.clave}</code></span>
+      </div>
+      <div style="font-size:13px">${e.resumen}</div>
+    </div>
+  `).join('');
 }
 
 async function renderUsuarios(){
