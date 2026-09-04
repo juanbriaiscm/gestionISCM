@@ -1467,7 +1467,10 @@ img, svg{max-width:100%}
 <div id="tab-becas" style="display:none">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
     <h2 style="margin:0;font-size:17px;color:#1a1a2e"><i class="ti ti-award"></i>Gestión de Becas</h2>
-    <button onclick="abrirModalBeca()" style="background:#1a1a2e;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-size:13px;cursor:pointer;font-weight:600">Agregar alumno becado</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button onclick="abrirModalBecaReset()" class="btn" style="height:36px;font-size:13px;background:#fef3f2;border-color:#fecdca;color:#b42318;font-weight:600"><i class="ti ti-refresh"></i>Reiniciar becas (ciclo nuevo)</button>
+      <button onclick="abrirModalBeca()" style="background:#1a1a2e;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-size:13px;cursor:pointer;font-weight:600">Agregar alumno becado</button>
+    </div>
   </div>
 
   <!-- Resumen por tipo -->
@@ -1751,6 +1754,40 @@ img, svg{max-width:100%}
     <div class="modal-actions" style="margin-top:18px">
       <button class="btn" onclick="document.getElementById('modal-beca-bulk').style.display='none'">Cancelar</button>
       <button class="btn primary" onclick="aplicarBecaBulkEdit()"><i class="ti ti-device-floppy"></i>Aplicar a seleccionadas</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL REINICIO DE BECAS (fin de ciclo lectivo) -->
+<div class="overlay" id="modal-beca-reset" style="display:none;align-items:center;justify-content:center">
+  <div class="modal" style="max-width:480px">
+    <h2><i class="ti ti-refresh"></i> Reiniciar becas para el próximo ciclo</h2>
+    <p style="font-size:13px;color:#555;margin-bottom:16px">
+      Esto borra <strong>todas</strong> las becas socioeconómicas y los hijos/as de profesores/as cargados (<span id="beca-reset-total">0</span> en total), para que cada familia tenga que volver a pedirla en el ciclo lectivo nuevo. No afecta aranceles, bonos ni el resto de la información de los alumnos.
+    </p>
+
+    <div id="beca-reset-programado-box" style="display:none;background:#eef3fc;border:1px solid #a8c3ed;border-radius:6px;padding:10px 14px;font-size:12px;color:#1a3a6e;margin-bottom:16px">
+      Ya hay un reinicio programado para el <strong id="beca-reset-fecha-actual"></strong>. Se va a ejecutar solo apenas alguien abra el sistema en esta computadora en o después de esa fecha.
+      <div style="margin-top:8px">
+        <button class="btn sm" onclick="becaCancelarProgramacion()">Cancelar programación</button>
+      </div>
+    </div>
+
+    <div class="section-divider"><span>Opción 1: programar para una fecha</span></div>
+    <div class="field" style="margin-bottom:8px">
+      <label>Fecha de reinicio</label>
+      <input type="date" id="beca-reset-fecha">
+    </div>
+    <p style="font-size:11px;color:#888;margin:0 0 10px">
+      Importante: como el sistema no tiene un servidor propio corriendo todo el tiempo, el reinicio se dispara cuando alguien <strong>abre el sistema</strong> en o después de esa fecha (no exactamente a la medianoche). Si nadie lo abre ese día, se ejecuta la próxima vez que se entre.
+    </p>
+    <button class="btn" onclick="becaProgramarReset()" style="width:100%;background:#eef3fc;border-color:#a8c3ed;color:#1a3a6e;font-weight:600"><i class="ti ti-calendar-event"></i>Programar reinicio</button>
+
+    <div class="section-divider" style="margin-top:20px"><span>Opción 2: borrar ahora mismo</span></div>
+    <button class="btn" onclick="becaResetearAhora()" style="width:100%;background:#fef3f2;border-color:#fecdca;color:#b42318;font-weight:600"><i class="ti ti-trash"></i>Borrar todas las becas ahora</button>
+
+    <div class="modal-actions" style="margin-top:18px">
+      <button class="btn" onclick="document.getElementById('modal-beca-reset').style.display='none'">Cerrar</button>
     </div>
   </div>
 </div>
@@ -8407,12 +8444,19 @@ function limpiarComasBecas(arr){
   } catch(e){}
   limpiarComasBecas(BECAS_SOCIO);
   limpiarComasBecas(HIJOS_PROF);
+  if(typeof becaVerificarResetProgramado === 'function') becaVerificarResetProgramado();
 })();
 (async ()=>{
   await new Promise(r=>{ if(window._fbReady)return r(); window.addEventListener('fbReady',r,{once:true}); setTimeout(r,3000); });
   if(!window._fb) return;
+  try{
+    const remoteFecha = await window._fb.get('iscm_becas_reset_fecha');
+    if(remoteFecha) localStorage.setItem('iscm_becas_reset_fecha', remoteFecha);
+    else if(remoteFecha === null) localStorage.removeItem('iscm_becas_reset_fecha');
+  } catch(e){}
   const remote = await window._fb.get('iscm_becas_v1');
   if(remote){ if(remote.socio) BECAS_SOCIO.splice(0,BECAS_SOCIO.length,...remote.socio); if(remote.hijos) HIJOS_PROF.splice(0,HIJOS_PROF.length,...remote.hijos); limpiarComasBecas(BECAS_SOCIO); limpiarComasBecas(HIJOS_PROF); renderBecas(); }
+  if(typeof becaVerificarResetProgramado === 'function') becaVerificarResetProgramado();
   window._fb.listen('iscm_becas_v1', data=>{ if(data.socio) BECAS_SOCIO.splice(0,BECAS_SOCIO.length,...data.socio); if(data.hijos) HIJOS_PROF.splice(0,HIJOS_PROF.length,...data.hijos); limpiarComasBecas(BECAS_SOCIO); limpiarComasBecas(HIJOS_PROF); renderBecas(); });
 })();
 
@@ -8883,6 +8927,80 @@ function becaSave(){
   if(document.getElementById('tab-aranceles')?.style.display !== 'none'){
     previewAranceles();
   }
+}
+
+// ── REINICIO DE BECAS (fin de ciclo lectivo) ──────────────────────
+const BECA_RESET_KEY = 'iscm_becas_reset_fecha';
+
+function becaFormatearFecha(iso){
+  const [y,m,d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+}
+
+function abrirModalBecaReset(){
+  document.getElementById('beca-reset-total').textContent = (BECAS_SOCIO.length + HIJOS_PROF.length);
+  const fechaProgramada = localStorage.getItem(BECA_RESET_KEY);
+  const box = document.getElementById('beca-reset-programado-box');
+  if(fechaProgramada){
+    box.style.display = 'block';
+    document.getElementById('beca-reset-fecha-actual').textContent = becaFormatearFecha(fechaProgramada);
+  } else {
+    box.style.display = 'none';
+  }
+  document.getElementById('beca-reset-fecha').value = '';
+  document.getElementById('modal-beca-reset').style.display = 'flex';
+}
+
+function becaProgramarReset(){
+  const fecha = document.getElementById('beca-reset-fecha').value;
+  if(!fecha){ showToast('Elegí una fecha primero','error'); return; }
+  localStorage.setItem(BECA_RESET_KEY, fecha);
+  if(window._fb) window._fb.set(BECA_RESET_KEY, fecha).catch(()=>{});
+  showToast(`📅 Reinicio de becas programado para el ${becaFormatearFecha(fecha)}`);
+  document.getElementById('modal-beca-reset').style.display = 'none';
+}
+
+function becaCancelarProgramacion(){
+  localStorage.removeItem(BECA_RESET_KEY);
+  if(window._fb) window._fb.set(BECA_RESET_KEY, null).catch(()=>{});
+  showToast('Programación de reinicio cancelada');
+  document.getElementById('beca-reset-programado-box').style.display = 'none';
+}
+
+function becaResetearAhora(){
+  const total = BECAS_SOCIO.length + HIJOS_PROF.length;
+  if(total === 0){ showToast('No hay becas cargadas para borrar','error'); document.getElementById('modal-beca-reset').style.display='none'; return; }
+  const conf = confirm(`⚠️ Esto va a borrar TODAS las becas socioeconómicas e hijos/as de profesores/as cargados (${total} en total), para que se vuelvan a pedir en el ciclo nuevo.\n\nEsta acción no se puede deshacer. ¿Confirmás?`);
+  if(!conf) return;
+  BECAS_SOCIO.length = 0;
+  HIJOS_PROF.length = 0;
+  localStorage.removeItem(BECA_RESET_KEY);
+  becaSave();
+  if(window._fb) window._fb.set(BECA_RESET_KEY, null).catch(()=>{});
+  renderBecas();
+  document.getElementById('modal-beca-reset').style.display = 'none';
+  showToast(`🗑 Se borraron ${total} beca(s). Listo para el ciclo nuevo.`);
+}
+
+// Se fija si hay un reinicio programado y si ya se cumplió la fecha; si es así, lo ejecuta.
+// Se llama al cargar la página (dato local) y de nuevo cuando llega el dato remoto de Firebase,
+// porque el sistema no tiene un servidor propio corriendo: el chequeo solo pasa cuando alguien abre el sistema.
+function becaVerificarResetProgramado(){
+  try{
+    const fecha = localStorage.getItem(BECA_RESET_KEY);
+    if(!fecha) return;
+    const hoy = new Date();
+    const hoyISO = hoy.getFullYear() + '-' + String(hoy.getMonth()+1).padStart(2,'0') + '-' + String(hoy.getDate()).padStart(2,'0');
+    if(hoyISO < fecha) return;
+    const total = BECAS_SOCIO.length + HIJOS_PROF.length;
+    BECAS_SOCIO.length = 0;
+    HIJOS_PROF.length = 0;
+    localStorage.removeItem(BECA_RESET_KEY);
+    becaSave();
+    if(window._fb) window._fb.set(BECA_RESET_KEY, null).catch(()=>{});
+    if(typeof renderBecas === 'function' && document.getElementById('tab-becas')) renderBecas();
+    setTimeout(()=>{ showToast(`📅 Reinicio automático de becas: se borraron ${total} beca(s) (programado para el ${becaFormatearFecha(fecha)})`); }, 1000);
+  } catch(e){ console.warn('becaVerificarResetProgramado error', e); }
 }
 
 function editarBecaSocio(idx){
