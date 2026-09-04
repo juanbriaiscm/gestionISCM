@@ -468,7 +468,10 @@ img, svg{max-width:100%}
 <!-- Firebase SDK -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-app.js";
-  import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-firestore.js";
+  import {
+    getFirestore, doc, getDoc, setDoc, onSnapshot,
+    collection, getDocs, deleteDoc, query, orderBy
+  } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-firestore.js";
   import {
     getAuth, onAuthStateChanged, setPersistence, browserSessionPersistence,
     signInWithEmailAndPassword, signOut, updatePassword,
@@ -499,6 +502,146 @@ img, svg{max-width:100%}
   const functions = getFunctions(app);
 
   setPersistence(auth, browserSessionPersistence).catch(e => console.warn("setPersistence error", e));
+
+  // ══════════════════════════════════════════════════════════════════════
+  // ── COPIAS DE SEGURIDAD AUTOMÁTICAS ─────────────────────────────────────
+  // Respalda TODA la colección "datos" (todo lo que usa fbGet/fbSet en el
+  // resto de la app) a un documento diario en la colección "backups".
+  // No depende de conocer las claves de antemano: lee la colección entera,
+  // así que cualquier módulo nuevo que use _fb.set/_fb.get queda cubierto
+  // automáticamente sin tener que tocar este código.
+  // ══════════════════════════════════════════════════════════════════════
+  const BACKUPS_RETENCION = 30; // cuántas copias diarias conservar
+
+  function _bkFechaHoy() {
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
+  // Toast visible si existe (definido en el script principal, no-module).
+  // Si no está disponible todavía, no rompe nada: solo queda en consola.
+  function _bkAviso(msg, tipo) {
+    try {
+      if (typeof window.showToast === 'function') window.showToast(msg, tipo);
+    } catch (e) { /* no bloquear el backup por un error de UI */ }
+  }
+
+  // Lee todos los documentos de la colección "datos" tal cual están guardados
+  // (cadenas JSON crudas), para poder restaurarlos exactamente igual.
+  async function bkLeerColeccionDatos() {
+    const snap = await getDocs(collection(db, "datos"));
+    const mapa = {};
+    snap.forEach(d => { mapa[d.id] = d.data().v; });
+    return mapa;
+  }
+
+  // Crea (o sobreescribe) el backup del día de hoy.
+  async function bkCrear(motivo) {
+    const datos = await bkLeerColeccionDatos();
+    const claves = Object.keys(datos);
+    if (!claves.length) throw new Error('La colección "datos" está vacía, no se genera backup.');
+    const fecha = _bkFechaHoy();
+    const meta = {
+      fecha,
+      ts: Date.now(),
+      usuario: (window.sesionActual && window.sesionActual.user) || auth.currentUser?.email || 'desconocido',
+      motivo: motivo || 'automático',
+      cantidadClaves: claves.length,
+      datos
+    };
+    await setDoc(doc(db, "backups", fecha), meta);
+    await bkAplicarRetencion();
+    return meta;
+  }
+
+  // Borra backups más viejos que los últimos N (por fecha, ordenado ascendente).
+  async function bkAplicarRetencion() {
+    try {
+      const snap = await getDocs(query(collection(db, "backups"), orderBy("fecha", "asc")));
+      const ids = snap.docs.map(d => d.id);
+      const sobran = ids.length - BACKUPS_RETENCION;
+      if (sobran <= 0) return;
+      const aBorrar = ids.slice(0, sobran);
+      for (const id of aBorrar) {
+        await deleteDoc(doc(db, "backups", id)).catch(e => console.warn("bkAplicarRetencion: no se pudo borrar", id, e));
+      }
+    } catch (e) {
+      console.warn("bkAplicarRetencion error", e);
+    }
+  }
+
+  // Se llama una vez por sesión, después del login. Si hoy todavía no hay
+  // backup, lo crea. Pensado para que "el que primero abre la app en el día"
+  // dispare el respaldo, sin que nadie tenga que acordarse de nada.
+  async function bkEjecutarSiCorresponde() {
+    const fecha = _bkFechaHoy();
+    try {
+      const existente = await getDoc(doc(db, "backups", fecha));
+      if (existente.exists()) return; // ya se hizo hoy
+      await bkCrear('automático (diario)');
+      console.info("Backup automático creado:", fecha);
+    } catch (e) {
+      // "permission-denied" es esperable si el rol conectado no tiene permiso
+      // de escritura en /backups (ver reglas de Firestore) — no es un error
+      // real de la app, así que no molestamos al usuario con un toast.
+      if (e && e.code === 'permission-denied') {
+        console.warn("Backup automático: sin permiso para este usuario/rol.", e);
+      } else {
+        console.error("Backup automático falló:", e);
+        _bkAviso('⚠️ No se pudo generar el backup automático de hoy. Avisá a un administrador.', 'error');
+      }
+    }
+  }
+
+  // Lista los backups existentes, más nuevo primero.
+  async function bkListar() {
+    const snap = await getDocs(query(collection(db, "backups"), orderBy("fecha", "desc")));
+    return snap.docs.map(d => {
+      const v = d.data();
+      return { fecha: v.fecha, ts: v.ts, usuario: v.usuario, motivo: v.motivo, cantidadClaves: v.cantidadClaves };
+    });
+  }
+
+  // Restaura un backup puntual: sobreescribe cada clave en "datos" con el
+  // valor guardado en ese backup. No borra claves nuevas creadas después
+  // del backup (evita perder datos de módulos agregados con posterioridad).
+  async function bkRestaurar(fecha) {
+    const snap = await getDoc(doc(db, "backups", fecha));
+    if (!snap.exists()) throw new Error('No existe un backup con esa fecha.');
+    const { datos } = snap.data();
+    const claves = Object.keys(datos || {});
+    for (const key of claves) {
+      await setDoc(doc(db, "datos", key), { v: datos[key] });
+    }
+    // Backup de seguridad ANTES de que el usuario siga trabajando, por si
+    // la restauración fue un error y hay que volver al estado previo.
+    await bkCrear('automático (previo a restauración de ' + fecha + ')').catch(e => console.warn(e));
+    return claves.length;
+  }
+
+  // Descarga un backup puntual como archivo .json, igual que "Descargar copia".
+  async function bkDescargar(fecha) {
+    const snap = await getDoc(doc(db, "backups", fecha));
+    if (!snap.exists()) throw new Error('No existe un backup con esa fecha.');
+    const raw = snap.data();
+    const legible = { fecha: raw.fecha, usuario: raw.usuario, motivo: raw.motivo, datos: {} };
+    Object.keys(raw.datos || {}).forEach(k => {
+      try { legible.datos[k] = JSON.parse(raw.datos[k]); } catch (e) { legible.datos[k] = raw.datos[k]; }
+    });
+    const blob = new Blob([JSON.stringify(legible, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'backup-iscm-' + fecha + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+
+  window._fbBackup = {
+    crearAhora: () => bkCrear('manual'),
+    ejecutarSiCorresponde: bkEjecutarSiCorresponde,
+    listar: bkListar,
+    restaurar: bkRestaurar,
+    descargar: bkDescargar
+  };
 
   const DOMINIO_EMAIL_USUARIOS = "iscm-gestion.local";
 
@@ -629,6 +772,10 @@ img, svg{max-width:100%}
     window._fb = { set: fbSet, get: fbGet, listen: fbListen };
     window._fbReady = true;
     window.dispatchEvent(new Event('fbReady'));
+
+    // Backup automático: si hoy todavía no se hizo, se genera solo.
+    // Se dispara una vez por sesión (ver guarda window._fbReady más arriba).
+    bkEjecutarSiCorresponde();
   });
 </script>
 
@@ -770,6 +917,13 @@ img, svg{max-width:100%}
       onmouseenter="this.style.color='#fff';this.style.background='rgba(255,255,255,0.1)'"
       onmouseleave="this.style.color='rgba(255,255,255,0.55)';this.style.background='none'">
       <i class="ti ti-users" style="font-size:17px"></i></button>
+
+    <!-- Icono: Copias de seguridad -->
+    <button id="btn-backups" onclick="openBackups()" title="Copias de seguridad"
+      style="display:none;background:none;border:none;color:rgba(255,255,255,0.55);cursor:pointer;padding:6px;border-radius:6px;line-height:1;transition:color .15s,background .15s"
+      onmouseenter="this.style.color='#fff';this.style.background='rgba(255,255,255,0.1)'"
+      onmouseleave="this.style.color='rgba(255,255,255,0.55)';this.style.background='none'">
+      <i class="ti ti-shield-lock" style="font-size:17px"></i></button>
 
     <!-- Icono: Mi cuenta -->
     <button onclick="openMiCuenta()" id="btn-mi-cuenta" title="Mi cuenta"
@@ -13128,6 +13282,23 @@ function mostrarPPError(msg){
   </div>
 </div>
 
+<!-- Modal Copias de seguridad -->
+<div class="overlay" id="modal-backups">
+  <div class="modal" style="max-width:640px">
+    <h2><i class="ti ti-shield-lock"></i>Copias de seguridad</h2>
+    <div style="font-size:12px;color:#888;margin-bottom:14px">
+      Se genera sola una vez por día, la primera vez que alguien abre el sistema. Se conservan las últimas
+      <b id="bk-retencion">30</b> copias diarias. Podés restaurar cualquiera de estas fechas si algo se borró
+      por error, o descargarla como archivo si preferís guardarla vos.
+    </div>
+    <div id="bk-lista" style="max-height:360px;overflow:auto"></div>
+    <div class="modal-actions">
+      <button class="btn" style="margin-right:auto" onclick="backupCrearAhoraUI()"><i class="ti ti-device-floppy"></i>Generar backup ahora</button>
+      <button class="btn" onclick="closeModal('modal-backups')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── LOGIN ──────────────────────────────────────────────────────────────
 (function(){
@@ -13217,6 +13388,8 @@ function loginOk(silent=false){
   setTimeout(()=>{ ls.style.display='none'; document.body.style.overflow=''; }, 420);
   const btnU = document.getElementById('btn-usuarios');
   if(btnU) btnU.style.display = (sesionActual.rol==='superadmin') ? '' : 'none';
+  const btnBk = document.getElementById('btn-backups');
+  if(btnBk) btnBk.style.display = (sesionActual.rol==='superadmin'||sesionActual.rol==='admin') ? '' : 'none';
   const btnMC = document.getElementById('btn-mi-cuenta');
   if(btnMC) btnMC.style.display = '';
   const mesLabel = document.getElementById('mes-label');
@@ -13354,6 +13527,99 @@ async function openUsuarios(){
   if(!sesionActual || sesionActual.rol !== 'superadmin') return;
   await renderUsuarios();
   document.getElementById('modal-usuarios').classList.add('open');
+}
+
+// ── Copias de seguridad (admin y superadmin) ─────────────────────────────
+function _bkEsAdmin(){
+  return !!(sesionActual && (sesionActual.rol === 'admin' || sesionActual.rol === 'superadmin'));
+}
+
+function _bkFechaLegible(fecha){
+  const [y,m,d] = fecha.split('-');
+  return `${d}/${m}/${y}`;
+}
+
+async function openBackups(){
+  if(!_bkEsAdmin() || !window._fbBackup) return;
+  await renderBackupsLista();
+  document.getElementById('modal-backups').classList.add('open');
+}
+
+async function renderBackupsLista(){
+  const el = document.getElementById('bk-lista');
+  el.innerHTML = '<div style="color:#aaa;font-size:13px;text-align:center;padding:12px">Cargando...</div>';
+  let lista;
+  try{
+    lista = await window._fbBackup.listar();
+  }catch(e){
+    console.error('renderBackupsLista', e);
+    el.innerHTML = '<div style="color:#c0392b;font-size:13px;text-align:center;padding:12px">No se pudo cargar el historial de backups.</div>';
+    return;
+  }
+  if(!lista.length){
+    el.innerHTML = '<div style="color:#aaa;font-size:13px;text-align:center;padding:12px">Todavía no hay ningún backup registrado.</div>';
+    return;
+  }
+  el.innerHTML = lista.map(b => `
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid #f0f0e8">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:13px">${_bkFechaLegible(b.fecha)}</div>
+        <div style="font-size:11px;color:#888">
+          ${new Date(b.ts).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})} ·
+          ${b.usuario||'—'} · ${b.motivo||'automático'} · ${b.cantidadClaves} claves
+        </div>
+      </div>
+      <button class="btn sm" onclick="backupDescargarUI('${b.fecha}')" title="Descargar como .json"><i class="ti ti-download"></i></button>
+      <button class="btn sm" style="color:#c0392b" onclick="backupRestaurarUI('${b.fecha}')" title="Restaurar este backup"><i class="ti ti-history"></i>Restaurar</button>
+    </div>
+  `).join('');
+}
+
+async function backupCrearAhoraUI(){
+  if(!_bkEsAdmin() || !window._fbBackup) return;
+  try{
+    await window._fbBackup.crearAhora();
+    showToast('Backup generado');
+    await renderBackupsLista();
+  }catch(e){
+    console.error('backupCrearAhoraUI', e);
+    showToast('No se pudo generar el backup', 'error');
+  }
+}
+
+async function backupDescargarUI(fecha){
+  try{
+    await window._fbBackup.descargar(fecha);
+  }catch(e){
+    console.error('backupDescargarUI', e);
+    showToast('No se pudo descargar ese backup', 'error');
+  }
+}
+
+// Restaurar pisa TODOS los datos actuales del sistema. Es irreversible para
+// lo cargado desde el backup hasta hoy, así que pedimos escribir una palabra
+// en vez de un simple Aceptar/Cancelar (fácil de clickear sin leer).
+async function backupRestaurarUI(fecha){
+  if(!_bkEsAdmin()) return;
+  const fechaLegible = _bkFechaLegible(fecha);
+  const escrito = prompt(
+    `Vas a RESTAURAR el backup del ${fechaLegible}.\n\n` +
+    `Esto reemplaza los datos actuales del sistema (aranceles, becas, bonos, caja, etc.) por los que estaban guardados ese día.\n` +
+    `Se genera automáticamente un backup del estado actual antes de restaurar, por las dudas.\n\n` +
+    `Para confirmar, escribí la palabra RESTAURAR (en mayúsculas):`
+  );
+  if(escrito !== 'RESTAURAR'){
+    if(escrito !== null) showToast('No se escribió la palabra exacta, no se restauró nada.', 'info');
+    return;
+  }
+  try{
+    const cantidad = await window._fbBackup.restaurar(fecha);
+    showToast(`Restaurado: ${cantidad} claves del ${fechaLegible}. Recargá la página para ver los datos.`, 'success', 6000);
+    await renderBackupsLista();
+  }catch(e){
+    console.error('backupRestaurarUI', e);
+    showToast('No se pudo restaurar ese backup', 'error');
+  }
 }
 
 async function renderUsuarios(){
