@@ -3475,6 +3475,7 @@ function save(){
   // Guardar en Firebase con debounce de 800ms
   clearTimeout(_saveTimer);
   _saveTimer = setTimeout(async () => {
+    _saveTimer = null;
     if(!window._fb) return;
     _fbSyncIndicator('saving');
     try {
@@ -3489,6 +3490,7 @@ async function guardarAhora(){
   localStorage.setItem(STORAGE_KEY, JSON.stringify(alumnos));
   localStorage.setItem(MES_KEY, mes);
   clearTimeout(_saveTimer);
+  _saveTimer = null;
   if(!window._fb) return false;
   _fbSyncIndicator('saving');
   try{
@@ -3502,6 +3504,28 @@ async function guardarAhora(){
     return false;
   }
 }
+
+// Si hay un guardado pendiente (el debounce de 800ms de save() todavía no se disparó)
+// lo fuerza ya mismo. Se usa al cambiar de pestaña, minimizar o cerrar el navegador,
+// para no perder cambios que quedaron guardados solo en esta PC.
+function _forzarGuardadoPendienteAlumnos(){
+  if(_saveTimer !== null){
+    clearTimeout(_saveTimer);
+    _saveTimer = null;
+    guardarAhora();
+  }
+}
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'hidden') _forzarGuardadoPendienteAlumnos();
+});
+window.addEventListener('pagehide', _forzarGuardadoPendienteAlumnos);
+window.addEventListener('beforeunload', (e) => {
+  if(_saveTimer !== null){
+    _forzarGuardadoPendienteAlumnos();
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
 function fmt(n){ const v=parseFloat(n)||0; const p=v.toFixed(2).split('.'); p[0]=p[0].replace(/\B(?=(\d{3})+(?!\d))/g,'.'); return '$'+p[0]+','+p[1]; }
 function sortAlumnos(){
   const carreraOrden = {
