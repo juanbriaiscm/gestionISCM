@@ -2193,15 +2193,21 @@ Apariente, Luciano | 1003-1004 | V"></textarea>
     <!-- IMPORTAR -->
     <div style="background:#fff;border:1px solid #e0e0d8;border-radius:10px;padding:20px">
       <h3 style="margin:0 0 10px;font-size:14px;color:#1a1a2e"><i class="ti ti-upload"></i> Importar</h3>
+      <div style="background:#e7f5ec;border:1px solid #b7e4c7;border-radius:6px;padding:10px 14px;font-size:12px;color:#1e5631;margin-bottom:10px">
+        <i class="ti ti-git-merge"></i> <b>Agregar solo lo nuevo:</b> compara el archivo con los datos actuales y agrega únicamente los registros que todavía no existen (por ejemplo, alumnos, cuotas, proveedores, etc. con un ID que no está cargado). Lo que ya está duplicado o ya fue cargado se deja como está, sin pisarlo. Es la opción recomendada para sumar información de otra planilla o backup sin perder nada de lo actual.
+      </div>
       <div style="background:#fff3cd;border:1px solid #ffe69c;border-radius:6px;padding:10px 14px;font-size:12px;color:#664d03;margin-bottom:14px">
-        <i class="ti ti-alert-triangle"></i> Al importar se <b>reemplaza toda la información actual (para todos los usuarios)</b> por la del archivo elegido. Esta acción no se puede deshacer. Se recomienda exportar un backup antes de importar.
+        <i class="ti ti-alert-triangle"></i> <b>Reemplazar todo:</b> borra toda la información actual (para todos los usuarios) y la reemplaza por la del archivo elegido. Esta acción no se puede deshacer. Se recomienda exportar un backup antes de usarla.
       </div>
       <input type="file" id="impexp-input-file" accept="application/json,.json" style="display:none" onchange="impExpArchivoSeleccionado(this)">
       <button class="btn" onclick="document.getElementById('impexp-input-file').click()"><i class="ti ti-file-upload"></i> Elegir archivo JSON</button>
       <span id="impexp-nombre-archivo" style="font-size:12px;color:#666;margin-left:10px"></span>
       <div id="impexp-import-preview" style="display:none;margin-top:14px;font-size:13px;color:#444;background:#f7f7f2;border-radius:6px;padding:10px 14px"></div>
       <div id="impexp-import-error" style="display:none;background:#f8d7da;border:1px solid #f5c6cb;border-radius:6px;padding:10px 14px;font-size:12px;color:#721c24;margin-top:10px"></div>
-      <button class="btn danger" id="impexp-btn-importar" style="display:none;margin-top:14px" onclick="impExpConfirmarImport()"><i class="ti ti-alert-triangle"></i> Reemplazar todos los datos con este archivo</button>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">
+        <button class="btn success" id="impexp-btn-mezclar" style="display:none" onclick="impExpConfirmarImportMezcla()"><i class="ti ti-git-merge"></i> Agregar solo lo nuevo (sin duplicar)</button>
+        <button class="btn danger" id="impexp-btn-importar" style="display:none" onclick="impExpConfirmarImport()"><i class="ti ti-alert-triangle"></i> Reemplazar todos los datos con este archivo</button>
+      </div>
       <div id="impexp-import-status" style="font-size:12px;color:#888;margin-top:10px"></div>
     </div>
   </div>
@@ -3792,7 +3798,7 @@ function switchTab(tab, el){
   if(tab==='debitos') debInit();
   if(tab==='asistencias') asistInit();
   if(tab==='bonos'){ bonosInit(); if(typeof bpProfesInit==='function') bpProfesInit(); }
-  if(tab==='impexp-global'){ ['impexp-export-status','impexp-import-status','impexp-import-preview','impexp-import-error'].forEach(id=>{const e=document.getElementById(id); if(e){e.style.display='none'; e.textContent='';} }); const bi=document.getElementById('impexp-btn-importar'); if(bi) bi.style.display='none'; const nf=document.getElementById('impexp-nombre-archivo'); if(nf) nf.textContent=''; const fi=document.getElementById('impexp-input-file'); if(fi) fi.value=''; window._impExpPendiente = null; }
+  if(tab==='impexp-global'){ ['impexp-export-status','impexp-import-status','impexp-import-preview','impexp-import-error'].forEach(id=>{const e=document.getElementById(id); if(e){e.style.display='none'; e.textContent='';} }); const bi=document.getElementById('impexp-btn-importar'); if(bi) bi.style.display='none'; const bm=document.getElementById('impexp-btn-mezclar'); if(bm) bm.style.display='none'; const nf=document.getElementById('impexp-nombre-archivo'); if(nf) nf.textContent=''; const fi=document.getElementById('impexp-input-file'); if(fi) fi.value=''; window._impExpPendiente = null; }
 }
 
 const _ddHideTimers = {};
@@ -16688,6 +16694,7 @@ function bonosPrint(){
     const file = input.files && input.files[0];
     document.getElementById('impexp-nombre-archivo').textContent = file ? file.name : '';
     document.getElementById('impexp-btn-importar').style.display = 'none';
+    document.getElementById('impexp-btn-mezclar').style.display = 'none';
     ieSetStatus('impexp-import-error', '', false);
     const preview = document.getElementById('impexp-import-preview');
     preview.style.display = 'none';
@@ -16711,6 +16718,7 @@ function bonosPrint(){
           <div><b>Secciones de datos encontradas:</b> ${claves.length} de ${IMPEXP_KEYS.length}</div>
           <div><b>Archivos adjuntos incluidos:</b> ${nArchivos}</div>
         `;
+        document.getElementById('impexp-btn-mezclar').style.display = '';
         document.getElementById('impexp-btn-importar').style.display = '';
       }catch(err){
         ieSetStatus('impexp-import-error', 'No se pudo leer el archivo: ' + err.message, true);
@@ -16765,6 +16773,141 @@ function bonosPrint(){
       console.error('impExpConfirmarImport error', e);
       ieSetStatus('impexp-import-status', 'Ocurrió un error durante la importación. Revisá la consola antes de reintentar.', true);
       btn.disabled = false;
+    }
+  };
+
+  // ── Combinar sin duplicar: agrega solo los registros que todavía no existen ──
+
+  // Genera una "firma" única para un registro. Si tiene un campo tipo id, se usa
+  // ese id como firma (así detecta que "ya está cargado" aunque cambien otros datos).
+  // Si no tiene ningún id reconocible, se usa el contenido completo (detecta duplicados exactos).
+  function ieFirmaRegistro(item){
+    if(item && typeof item === 'object' && !Array.isArray(item)){
+      const camposId = ['id','ID','Id','uid','UID','clave','key','dni','DNI','cuit','CUIT','cbu'];
+      for(const campo of camposId){
+        const v = item[campo];
+        if(v !== undefined && v !== null && v !== ''){
+          return campo + ':' + String(v);
+        }
+      }
+    }
+    try{ return 'json:' + JSON.stringify(item); }
+    catch(e){ return 'raw:' + String(item); }
+  }
+
+  // Combina dos listas: conserva todo lo actual y agrega al final sólo los
+  // elementos del archivo que no coinciden (por firma) con algo ya existente.
+  function ieMezclarLista(actual, nuevo){
+    const base = Array.isArray(actual) ? actual.slice() : [];
+    const firmas = new Set(base.map(ieFirmaRegistro));
+    let agregados = 0, duplicados = 0;
+    if(Array.isArray(nuevo)){
+      for(const item of nuevo){
+        const f = ieFirmaRegistro(item);
+        if(firmas.has(f)){ duplicados++; continue; }
+        base.push(item);
+        firmas.add(f);
+        agregados++;
+      }
+    }
+    return {valor: base, agregados, duplicados};
+  }
+
+  // Combina dos objetos "diccionario" (ej: datos guardados por clave interna):
+  // agrega las claves que faltan y deja intactas las que ya existían.
+  function ieMezclarDiccionario(actual, nuevo){
+    const esObjetoPlano = v => v && typeof v === 'object' && !Array.isArray(v);
+    const base = esObjetoPlano(actual) ? Object.assign({}, actual) : {};
+    let agregados = 0, duplicados = 0;
+    if(esObjetoPlano(nuevo)){
+      for(const k of Object.keys(nuevo)){
+        if(Object.prototype.hasOwnProperty.call(base, k) && base[k] !== null && base[k] !== undefined){
+          duplicados++;
+        }else{
+          base[k] = nuevo[k];
+          agregados++;
+        }
+      }
+    }
+    return {valor: base, agregados, duplicados};
+  }
+
+  // Decide cómo combinar según el tipo de dato guardado bajo cada clave.
+  function ieMezclarValor(actual, nuevo){
+    if(nuevo === null || nuevo === undefined){
+      return {valor: actual, agregados: 0, duplicados: 0};
+    }
+    if(Array.isArray(nuevo) || Array.isArray(actual)){
+      return ieMezclarLista(actual, nuevo);
+    }
+    if(typeof nuevo === 'object'){
+      return ieMezclarDiccionario(actual, nuevo);
+    }
+    // Valor simple (texto/número/booleano): sólo lo completa si no había nada cargado.
+    if(actual === null || actual === undefined || actual === ''){
+      return {valor: nuevo, agregados: (nuevo !== '' ? 1 : 0), duplicados: 0};
+    }
+    return {valor: actual, agregados: 0, duplicados: (actual !== nuevo ? 1 : 0)};
+  }
+
+  window.impExpConfirmarImportMezcla = async function(){
+    const json = window._impExpPendiente;
+    if(!json){ return; }
+    const conf = confirm('Se van a AGREGAR al sistema los registros del archivo elegido que todavía no existen (alumnos, cuotas, proveedores, etc.). Lo que ya está cargado no se va a modificar ni duplicar. ¿Continuar?');
+    if(!conf) return;
+
+    const btn = document.getElementById('impexp-btn-mezclar');
+    const btnReemplazar = document.getElementById('impexp-btn-importar');
+    btn.disabled = true;
+    if(btnReemplazar) btnReemplazar.disabled = true;
+    try{
+      const claves = Object.keys(json.data).filter(k => IMPEXP_KEYS.includes(k) && json.data[k] !== null && json.data[k] !== undefined);
+      const resumen = [];
+      for(let i=0;i<claves.length;i++){
+        const key = claves[i];
+        ieSetStatus('impexp-import-status', `Comparando ${i+1} de ${claves.length}: ${key}…`, false);
+        const actual = await ieLeerClave(key);
+        const r = ieMezclarValor(actual, json.data[key]);
+        if(r.agregados > 0){
+          await ieEscribirClave(key, r.valor);
+          resumen.push(`${key}: +${r.agregados} nuevo(s)` + (r.duplicados ? `, ${r.duplicados} ya existían` : ''));
+        }
+      }
+
+      if(json.archivosAdjuntos){
+        const ids = Object.keys(json.archivosAdjuntos);
+        if(ids.length){
+          if(!(window._fbReady && window._fb)){
+            resumen.push('Archivos adjuntos: no se pudieron revisar (sin conexión con la nube)');
+          }else{
+            let nuevosArch = 0;
+            for(let i=0;i<ids.length;i++){
+              const id = ids[i];
+              ieSetStatus('impexp-import-status', `Revisando archivo adjunto ${i+1} de ${ids.length}…`, false);
+              try{
+                const existente = await ieLeerClave(ARCH_FILE_PFX_IE + id);
+                if(existente === null || existente === undefined){
+                  await window._fb.set(ARCH_FILE_PFX_IE + id, json.archivosAdjuntos[id]);
+                  nuevosArch++;
+                }
+              }catch(e){ console.warn('impExp: no se pudo mezclar archivo adjunto', id, e); }
+            }
+            if(nuevosArch) resumen.push(`Archivos adjuntos: +${nuevosArch} nuevo(s)`);
+          }
+        }
+      }
+
+      ieSetStatus(
+        'impexp-import-status',
+        (resumen.length ? ('Combinación completa. ' + resumen.join(' · ') + '.') : 'Combinación completa: no había información nueva para agregar (todo ya estaba cargado).') + ' Recargando…',
+        false
+      );
+      setTimeout(() => location.reload(), 1600);
+    }catch(e){
+      console.error('impExpConfirmarImportMezcla error', e);
+      ieSetStatus('impexp-import-status', 'Ocurrió un error durante la combinación. Revisá la consola antes de reintentar.', true);
+      btn.disabled = false;
+      if(btnReemplazar) btnReemplazar.disabled = false;
     }
   };
 })();
