@@ -453,47 +453,21 @@ tr:hover td{background:#fafaf5}
   .dash-kpi-grid{grid-template-columns:repeat(2,1fr)}
   .cierre-resumen-grid{grid-template-columns:repeat(2,1fr)}
   .tab-group-btn{font-size:12px;padding:7px 12px}
-  /* Menús de pestañas en móvil: panel fijo abajo, sin recorte, tocable */
+  /* Menús de pestañas en móvil: desplegable debajo del botón, tocable y sin recorte.
+     JS fija top/left con position:fixed; acá solo tamaño y estilo. */
   .tab-dropdown.open{
     display:block!important;
-    position:fixed!important;
-    left:8px!important;
-    right:8px!important;
-    top:auto!important;
-    bottom:8px!important;
-    width:auto!important;
-    min-width:0!important;
-    max-width:none!important;
-    margin:0!important;
-    max-height:70vh;
+    min-width:180px;
+    max-width:calc(100vw - 16px);
+    max-height:60vh;
     overflow-y:auto;
-    border-radius:12px;
-    box-shadow:0 -4px 24px rgba(0,0,0,.25);
     z-index:99999!important;
+    box-shadow:0 8px 28px rgba(0,0,0,.28);
   }
   .tab-dropdown.open .dd-item{
-    padding:14px 18px;
-    font-size:15px;
+    padding:13px 16px;
+    font-size:14px;
     white-space:normal;
-  }
-  .tab-dropdown.open::before{
-    content:attr(data-title);
-    display:block;
-    padding:12px 18px 8px;
-    font-size:11px;
-    font-weight:700;
-    letter-spacing:.06em;
-    text-transform:uppercase;
-    color:#999;
-    border-bottom:1px solid #f0f0e8;
-  }
-  /* Fondo oscuro detrás del menú abierto */
-  body.dd-mobile-open::after{
-    content:'';
-    position:fixed;
-    inset:0;
-    background:rgba(0,0,0,.35);
-    z-index:99998;
   }
   .controls{flex-direction:column;align-items:stretch}
   .controls input,.controls select,.controls .btn{width:100%;min-width:0}
@@ -3872,46 +3846,41 @@ function switchTab(tab, el){
 
 const _ddHideTimers = {};
 function _ddEsMovil(){ return window.matchMedia('(max-width: 640px)').matches; }
-// Títulos para el encabezado del panel móvil
-const _ddTitulos = {'dd-general':'General','dd-alumnos':'Alumnos','dd-finanzas':'Finanzas','dd-admin':'Administración','dd-impexp':'Importar / Exportar','dd-mas-acciones':'Más acciones'};
 function _ddCerrarTodos(){
   document.querySelectorAll('.tab-dropdown.open').forEach(el=>{
     if(_ddHideTimers[el.id]){ clearTimeout(_ddHideTimers[el.id]); delete _ddHideTimers[el.id]; }
     el.classList.remove('open');
     el.style.position=''; el.style.top=''; el.style.left=''; el.style.right=''; el.style.marginTop='';
   });
-  document.body.classList.remove('dd-mobile-open');
 }
 function ddShow(id){
   if(_ddHideTimers[id]){ clearTimeout(_ddHideTimers[id]); delete _ddHideTimers[id]; }
   const d=document.getElementById(id); if(!d) return;
-  if(_ddEsMovil()){
-    // En móvil el CSS posiciona el panel; solo marcamos abierto y ponemos el fondo
-    if(_ddTitulos[id]) d.setAttribute('data-title', _ddTitulos[id]);
-    d.classList.add('open');
-    document.body.classList.add('dd-mobile-open');
-    return;
-  }
   const group=d.parentElement;
   const r=group.getBoundingClientRect();
+  // Mostrar (fuera de pantalla) para poder medir su ancho real
   d.style.position='fixed';
   d.style.top=r.bottom+'px';
   d.style.marginTop='2px';
-  const estimatedWidth = d.offsetWidth || 200;
-  if(r.left + estimatedWidth > window.innerWidth - 8){
-    d.style.right=(window.innerWidth - r.right)+'px';
-    d.style.left='auto';
-  } else {
-    d.style.left=r.left+'px';
-    d.style.right='auto';
-  }
+  d.style.left='-9999px';
+  d.style.right='auto';
   d.classList.add('open');
+  const w = d.offsetWidth || 200;
+  const margen = 8;
+  let left = r.left;
+  // Si se sale por la derecha, lo pegamos al borde derecho de la pantalla
+  if(left + w > window.innerWidth - margen){
+    left = window.innerWidth - w - margen;
+  }
+  if(left < margen) left = margen;
+  d.style.left = left + 'px';
+  d.style.right = 'auto';
 }
 function ddHide(id){
   // En móvil no cerramos por "salir con el mouse" (no aplica al touch)
   if(_ddEsMovil()) return;
   _ddHideTimers[id] = setTimeout(()=>{
-    const d=document.getElementById(id); if(d) d.classList.remove('open');
+    const d=document.getElementById(id); if(d){ d.classList.remove('open'); d.style.left=''; d.style.right=''; d.style.top=''; d.style.position=''; }
     delete _ddHideTimers[id];
   }, 250);
 }
